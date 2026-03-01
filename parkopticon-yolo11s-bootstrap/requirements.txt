@@ -1,0 +1,33 @@
+# Ultralytics YOLO and related
+ultralytics>=8.3.0
+torch>=2.0.0
+torchvision>=0.15.0
+
+# Google APIs
+google-genai>=1.0.0
+googlemaps>=5.0.0
+
+# Web framework for labeling UI
+fastapi>=0.115.0
+uvicorn>=0.30.0
+python-multipart>=0.0.9
+jinja2>=3.1.0
+
+# Image processing
+opencv-python>=4.10.0
+Pillow>=10.0.0
+numpy>=1.24.0
+scikit-image>=0.22.0
+
+# Data handling
+pandas>=2.0.0
+tqdm>=4.65.0
+python-dotenv>=1.0.0
+
+# Evaluation
+pyyaml>=6.0.0
+seaborn>=0.13.0
+matplotlib>=3.7.0
+
+# Utilities
+shapely>=2.0.0

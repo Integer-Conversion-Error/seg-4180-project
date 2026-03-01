@@ -1,0 +1,19 @@
+# ParkOpticon YOLO11s Dataset Configuration
+# 2-class vehicle detector: vehicle (0), enforcement_vehicle (1)
+
+# Paths - adjust these based on your project structure
+path: data/splits
+train: train/images
+val: val/images
+test: test/images
+
+# Classes (Ultralytics format)
+names:
+  0: vehicle
+  1: enforcement_vehicle
+
+# Number of classes
+nc: 2
+
+# Dataset info (optional)
+# Download: N/A (custom dataset)
