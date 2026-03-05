@@ -5,7 +5,7 @@ torchvision>=0.15.0
 
 # Google APIs
 google-genai>=1.0.0
-googlemaps>=5.0.0
+googlemaps>=4.10.0
 
 # Web framework for labeling UI
 fastapi>=0.115.0
@@ -31,3 +31,4 @@ matplotlib>=3.7.0
 
 # Utilities
 shapely>=2.0.0
+imagehash>=4.3.0

@@ -155,7 +155,7 @@ def main():
     parser.add_argument("--manifest", "-m", default="manifests/images.csv", help="Output manifest")
     parser.add_argument("--out-dir", "-o", default="data/images_original", help="Output directory")
     parser.add_argument("--api-key", "-k", default=None, help="GSV API key (or env GSV_API_KEY)")
-    parser.add_argument("--resume/--no-resume", default=True, help="Resume from existing manifest")
+    parser.add_argument("--resume", action="store_true", default=True)
     args = parser.parse_args()
     
     api_key = args.api_key or os.getenv("GSV_API_KEY")

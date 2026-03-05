@@ -1,24 +1,52 @@
-# Python cache
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
-
-# Environments
-.env
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
 .venv/
 venv/
+env/
 
-# Generated pipeline artifacts
+.env
+.env.*
+
+actual_dirs.txt
+duplicate_files.txt
+expected_labels.txt
+image_files.txt
+extra_dirs.txt
+indent.log
+
 parkopticon-yolo11s-bootstrap/data/images_original/
 parkopticon-yolo11s-bootstrap/data/images_synth/
 parkopticon-yolo11s-bootstrap/data/labels_autogen/
 parkopticon-yolo11s-bootstrap/data/labels_final/
 parkopticon-yolo11s-bootstrap/data/splits/
+parkopticon-yolo11s-bootstrap/data/images_hard_negatives/images/
+parkopticon-yolo11s-bootstrap/data/images_hard_negatives/labels/
+parkopticon-yolo11s-bootstrap/data/**
+
 parkopticon-yolo11s-bootstrap/runs/
 parkopticon-yolo11s-bootstrap/reports/
-parkopticon-yolo11s-bootstrap/manifests/images.csv
-parkopticon-yolo11s-bootstrap/lists/empty_candidates.txt
+parkopticon-yolo11s-bootstrap/deleted_images/
 
-# OS files
-.DS_Store
+parkopticon-yolo11s-bootstrap/*.pt
+parkopticon-yolo11s-bootstrap/*.onnx
+parkopticon-yolo11s-bootstrap/*.engine
+
+parkopticon-yolo11s-bootstrap/report.aux
+parkopticon-yolo11s-bootstrap/report.log
+parkopticon-yolo11s-bootstrap/report.out
+parkopticon-yolo11s-bootstrap/report.toc
+parkopticon-yolo11s-bootstrap/report.pdf
+parkopticon-yolo11s-bootstrap/*.bak0
+parkopticon-yolo11s-bootstrap/=4.3.0
+parkopticon-yolo11s-bootstrap/nul
+parkopticon-yolo11s-bootstrap/manifests/images.csv
+parkopticon-yolo11s-bootstrap/manifests/boxes_autogen*.jsonl
+parkopticon-yolo11s-bootstrap/lists/empty_candidates.txt
+parkopticon-yolo11s-bootstrap/lists/excluded_from_synth.txt
+
+*.tmp
+*.temp
+*.log

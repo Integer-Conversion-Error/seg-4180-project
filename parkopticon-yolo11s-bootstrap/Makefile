@@ -1,4 +1,4 @@
-.PHONY: help fetch crop empty synth prelabel labeler split train eval clean
+.PHONY: help fetch crop empty synth prelabel labeler split train eval hard_negatives clean
 
 help:
 	@echo "ParkOpticon YOLO11s Bootstrap - Pipeline Commands"
@@ -12,6 +12,7 @@ help:
 	@echo "make split      - Create train/val/test split"
 	@echo "make train      - Train YOLO11s detector"
 	@echo "make eval       - Evaluate on test set"
+	@echo "make hard_negatives  - Collect hard negative images (no vehicles)"
 	@echo "make clean      - Clean generated files"
 
 fetch:
@@ -40,6 +41,9 @@ train:
 
 eval:
 	python scripts/08_eval_report.py --weights runs/detect/parkopticon_vehicle_enforcement/weights/best.pt
+
+hard_negatives:
+	python scripts/10_collect_hard_negatives.py --show-examples
 
 clean:
 	rm -rf data/images_original/*/

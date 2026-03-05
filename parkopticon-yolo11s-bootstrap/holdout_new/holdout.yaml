@@ -1,0 +1,8 @@
+path: holdout_new
+val: images
+names:
+  0: vehicle
+  1: enforcement_vehicle
+  2: police_old
+  3: police_new
+nc: 4

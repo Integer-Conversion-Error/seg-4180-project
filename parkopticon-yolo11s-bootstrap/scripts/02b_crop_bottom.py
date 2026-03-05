@@ -17,11 +17,17 @@ import csv
 import logging
 import os
 import re
+import sys
 import tempfile
 from datetime import datetime
 from pathlib import Path
 
+# Add project root to path so we can import utils
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 from PIL import Image
+
+from utils.preprocessing import crop_image_bottom
 
 
 logging.basicConfig(
@@ -78,25 +84,6 @@ def is_ok_status(row: dict[str, str]) -> bool:
 def is_synthetic(row: dict[str, str]) -> bool:
     return str(row.get("is_synthetic") or "0").strip() == "1"
 
-
-def crop_image_bottom(source_path: Path, target_path: Path, crop_px: int) -> tuple[bool, str]:
-    try:
-        with Image.open(source_path) as image:
-            width, height = image.size
-            if height <= crop_px:
-                return False, f"image height ({height}) <= crop ({crop_px})"
-
-            cropped = image.crop((0, 0, width, height - crop_px))
-            target_path.parent.mkdir(parents=True, exist_ok=True)
-
-            image_format = (image.format or "").upper()
-            if image_format in {"JPEG", "JPG"}:
-                cropped.save(target_path, quality=95, optimize=True)
-            else:
-                cropped.save(target_path)
-        return True, ""
-    except Exception as exc:  # noqa: BLE001
-        return False, str(exc)
 
 
 def main() -> int:

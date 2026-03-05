@@ -43,8 +43,24 @@
     <header>
         <h1>ParkOpticon Labeler</h1>
         <div class="controls">
-            <button id="prevBtn">← Prev (P)</button>
-            <button id="nextBtn">Next (N) →</button>
+            <label for="queueFilter" style="font-size:13px; color:#aaa;">Queue</label>
+            <select id="queueFilter" style="background:#2a2a2a; color:#fff; border:1px solid #444; padding:7px 10px; border-radius:4px;">
+                <option value="needs_review" selected>Needs review only</option>
+                <option value="all">All pending</option>
+                <option value="autolabel_ok">Autolabel-approved only</option>
+            </select>
+            <input id="imageSearchInput" type="text" placeholder="Jump to image ID" style="background:#2a2a2a; color:#fff; border:1px solid #444; padding:7px 10px; border-radius:4px; min-width:180px;" />
+            <button id="imageSearchBtn" title="Jump to image ID">Go</button>
+            <label style="font-size:13px; color:#aaa; display:flex; align-items:center; gap:6px;">
+                <input id="autosaveToggle" type="checkbox" />
+                Autosave on next/prev
+            </label>
+            <label style="font-size:13px; color:#aaa; display:flex; align-items:center; gap:6px;">
+                <input id="showExcludedToggle" type="checkbox" />
+                Show excluded
+            </label>
+            <button id="prevBtn" title="Previous image">←</button>
+            <button id="nextBtn" title="Next image">→</button>
             <button id="markInsertedBtn" class="primary" style="display:none;">Mark Inserted Vehicle</button>
             <button id="saveBtn" class="primary">Save (S)</button>
         </div>
@@ -58,6 +74,7 @@
                 <h3>Image Info</h3>
                 <p>ID: <span id="imageId">-</span></p>
                 <p>Status: <span id="imageStatus">-</span></p>
+                <p>Excluded: <span id="excludedStatus">-</span></p>
                 <p id="syntheticInfo" style="display:none;">Synthetic: <span class="highlight">Yes</span></p>
             </div>
             <div class="info-panel">
@@ -67,9 +84,13 @@
             </div>
             <div class="info-panel shortcuts">
                 <h3>Shortcuts</h3>
-                <p><kbd>N</kbd> / <kbd>P</kbd> Next/Prev</p>
+                <p><kbd>←</kbd> / <kbd>→</kbd> Next/Prev</p>
+                <p><kbd>N</kbd> / <kbd>P</kbd> Next/Prev (alt)</p>
                 <p><kbd>0</kbd> Vehicle class</p>
-                <p><kbd>1</kbd> Enforcement class</p>
+                <p><kbd>1</kbd> Bylaw enforcement</p>
+                <p><kbd>2</kbd> Police old</p>
+                <p><kbd>3</kbd> Police new</p>
+                <p><kbd>4</kbd> Lookalike negative</p>
                 <p><kbd>Del</kbd> Delete selected</p>
                 <p><kbd>S</kbd> Save</p>
             </div>
@@ -77,6 +98,7 @@
     </div>
     <div class="status-bar">
         <span id="progress">0 / 0</span>
+        <span id="reviewSpeed">Reviewed: 0 | Speed: 0.0/min</span>
         <span id="hint">Click and drag to create box</span>
     </div>
     <script src="app.js"></script>

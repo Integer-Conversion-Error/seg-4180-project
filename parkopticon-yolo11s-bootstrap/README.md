@@ -1,11 +1,13 @@
 # ParkOpticon YOLO11s Bootstrap
 
-A complete pipeline for training a 2-class YOLO11s vehicle detector with synthetic data generation using Google Street View and Gemini image editing.
+A complete pipeline for training a 4-class YOLO11s vehicle detector using synthetic data generation with Google Street View backgrounds and high-fidelity image editing.
 
 ## Classes
 
 - **Class 0**: `vehicle` - Regular vehicles (cars, trucks, buses, motorcycles)
 - **Class 1**: `enforcement_vehicle` - Parking enforcement vehicles
+- **Class 2**: `police_old` - Ottawa Police cruisers with old livery
+- **Class 3**: `police_new` - Ottawa Police cruisers with new livery (facelift in progress)
 
 ## Quickstart
 
@@ -91,6 +93,144 @@ make eval
 | Train | `07_train_yolo.py` | Train YOLO11s detector |
 | Eval | `08_eval_report.py` | Evaluate and generate report |
 
+## Synthetic Data Strategy
+
+### Why Synthetic?
+
+All training data is synthetically generated. The image generation model produces edits that are practically indistinguishable from real photographs, enabling:
+
+- Full control over class balance and scene composition
+- No privacy concerns from real vehicle imagery
+- Rapid iteration on model improvements
+- Consistent labeling without manual annotation errors
+
+### How Many Synthetic Images to Generate
+
+Target based on **bounding box count**, not image count.
+
+**Recommended target:** ~500-800 synthetic boxes per enforcement class (`enforcement_vehicle`, `police_old`, `police_new`).
+
+A concrete plan with K = 600 base empty frames:
+
+For each base empty frame, generate:
+1. **One synthetic normal vehicle** version
+2. **One synthetic enforcement class** version (rotate through enforcement_vehicle, police_old, police_new)
+
+Keep the original empty frame too.
+
+This gives you:
+- **600 normal vehicle images** (negative examples for enforcement classes)
+- **~200 images per enforcement class** (600 total enforcement boxes)
+- **600 original empties** (true negatives)
+
+### Keeping Original Empty Frames
+
+**Yes — keep the original empty frame.** It's valuable as a negative example.
+
+**Critical rule: Keep "siblings" together in the same split.**
+
+For a given base empty frame, these must all land in the same split:
+- The original empty frame
+- Its synthetic normal vehicle version
+- Its synthetic enforcement vehicle version(s)
+
+If you don't, the same background leaks into train and test, producing inflated metrics.
+
+### Avoiding "Enforcement Always Has 1 Box" Shortcuts
+
+If enforcement vehicles only appear as "one added car to an empty scene," the model can learn:
+- Enforcement vehicles are always alone
+- Enforcement vehicles always appear in wide open roads
+- Enforcement is always centered / same scale
+
+**Fixes (apply 1-2):**
+
+1. **For ~20-30% of enforcement synth images**, prompt: "Add one enforcement vehicle **and** one normal vehicle farther away."
+2. **For ~10-20% of enforcement synth**, add enforcement **smaller / farther** (varied scale).
+
+### Minimum Box Size
+
+Ignore tiny far-away detections during labeling — they add noise without useful signal.
+
+### Quality Safeguards
+
+**Confidence threshold for "empty" detection:**
+
+When selecting empty frames for synthetic insertion, use a **lower confidence threshold** (e.g., 0.15–0.25) for the pretrained YOLO detector.
+
+Why: If the detector misses a car at higher confidence, you'll inject a synthetic vehicle into a frame that already has one — creating confusing labels.
+
+**Consistent preprocessing:**
+
+If you crop the bottom of images to remove overlays (watermarks, UI elements), apply the same crop at inference time. Mismatched preprocessing degrades model performance.
+
+---
+
+## Dataset Splitting (Leakage-Safe)
+
+### The Unit of Splitting
+
+**Split by panorama group, not by image.**
+
+- Primary group key: **`pano_id`**
+- Each pano group contains up to 8 headings (orthogonal views) plus synthetic siblings
+
+**Rule:** One pano group can only be in **train OR val OR test** — never more than one.
+
+Why: Your 8 headings are near-duplicates of the same scene. Random splitting causes the model to memorize the intersection.
+
+### Step-by-Step Split Procedure
+
+#### Step 1 — Build Groups
+
+For every image, assign:
+- `group_id = pano_id` (preferred)
+
+If `pano_id` is missing, approximate with:
+- `rounded pano_lat/lng + heading bucket`
+
+#### Step 2 — Create "Families" for Synthetic
+
+For each synthetic image:
+- `parent_image_id` points to the original empty frame
+- Inherit the same `group_id` as the parent
+
+#### Step 3 — Choose Split Ratios
+
+Use:
+- **Train: 70%**
+- **Val: 20%**
+- **Test: 10%**
+
+#### Step 4 — Allocate Synthetic Bases AFTER Splitting Groups
+
+**Do not** randomly pick synthetic bases from the whole dataset.
+
+**Do:**
+- Pick K bases *within train panos*
+- Pick ~0.2K bases within val panos
+- Pick ~0.1K bases within test panos
+
+This ensures synthetic siblings stay in the same split as their parent.
+
+#### Step 5 — Ensure Enforcement Appears in Val/Test
+
+After labels exist, verify:
+- Does val have at least **~50 enforcement instances total**?
+- Does test have at least **~30 enforcement instances total**?
+
+If not, move a few enforcement-positive pano groups from train into val/test (group-level move only).
+
+#### Step 6 — Materialize the Splits
+
+Copy/symlink images + labels into:
+```
+splits/train/images, splits/train/labels
+splits/val/...
+splits/test/...
+```
+
+Empty images should have **empty label files** (valid negatives).
 ## Project Structure
 
 ```
@@ -296,6 +436,7 @@ If no empty candidates found:
 - Try different locations with fewer vehicles
 - Lower the confidence threshold: `--conf 0.15`
 
+**Warning:** A missed vehicle during empty detection means you'll inject a synthetic car into a frame that already has one. Always use a lower confidence threshold (0.15–0.25) for this step, even if it means fewer "empty" frames.
 ### Synthesis Failures
 
 - Check Gemini API quota and rate limits
