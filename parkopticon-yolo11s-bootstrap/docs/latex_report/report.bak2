@@ -1,0 +1,673 @@
+\documentclass[12pt,a4paper]{article}
+
+% Packages
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{geometry}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{float}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{amsmath}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+
+\geometry{margin=1in}
+
+% Code listing style
+\lstset{
+    basicstyle=\ttfamily\footnotesize,
+    breaklines=true,
+    frame=single,
+    backgroundcolor=\color{gray!10},
+    keywordstyle=\color{blue},
+    commentstyle=\color{green!60!black},
+    stringstyle=\color{orange}
+}
+
+% Title information
+\title{
+    \textbf{Parking Spot Detection Using YOLO11}\\
+    \large A Computer Vision Approach with Synthetic Data Augmentation
+}
+\author{
+    Esad Kaya\\
+    Student Number: 300283659\\
+    \texttt{ekaya@uOttawa.ca}
+}
+\date{
+    \today\\[1em]
+    \normalsize SEG 4180: Applied Machine Learning\\
+    Professor Daniel Shapiro\\
+    University of Ottawa
+}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+	This report documents the development of a parking spot detection system using the YOLO11 object detection architecture. The system is designed to identify vehicles and parking enforcement vehicles in street-level imagery obtained from Google Street View. We describe the data collection pipeline, preprocessing steps, and the machine learning workflow employed. The project leverages synthetic data generation via Google's Gemini API to augment the training dataset, addressing the challenge of limited labeled data for parking enforcement vehicles.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+%=============================================================================
+\section{Introduction}
+%=============================================================================
+
+\subsection{Motivation}
+
+Parking enforcement is a critical urban management task that traditionally requires significant human labor. Automating the detection of parking violations---particularly identifying parking enforcement vehicles in restricted zones---presents an opportunity to improve efficiency and consistency in municipal operations.
+
+Computer vision techniques, particularly object detection models, have advanced significantly in recent years. The YOLO (You Only Look Once) family of models offers real-time detection capabilities suitable for deployment in practical applications.
+
+\subsection{Objectives}
+
+The primary objectives of this project are:
+
+\begin{enumerate}
+	\item Develop a data collection pipeline for acquiring street-level imagery
+	\item Implement preprocessing steps to prepare images for machine learning
+	\item Train a YOLO11 model to detect four classes: regular vehicles, parking enforcement vehicles, and two types of police cruisers
+	\item Evaluate model performance and document findings
+\end{enumerate}
+
+\subsection{Scope}
+
+This project focuses on the Ottawa, Ontario area for data collection. The model is trained to detect:
+\begin{itemize}
+	\item \textbf{Class 0: vehicle} --- Regular vehicles (cars, trucks, buses, motorcycles)
+	\item \textbf{Class 1: enforcement\_vehicle} --- Parking enforcement vehicles
+	\item \textbf{Class 2: police\_old} --- Ottawa Police cruisers with old livery
+	\item \textbf{Class 3: police\_new} --- Ottawa Police cruisers with new livery
+\end{itemize}
+
+%=============================================================================
+\section{Methodology}
+%=============================================================================
+
+\subsection{System Architecture}
+
+The project follows a modular pipeline architecture:
+
+\begin{enumerate}
+	\item \textbf{Data Collection}: Automated fetching of Google Street View images
+	\item \textbf{Preprocessing}: Image cropping and quality filtering
+	\item \textbf{Empty Frame Detection}: Identification of frames without vehicles
+	\item \textbf{Synthetic Data Generation}: Insertion of vehicles into empty frames
+	\item \textbf{Label Generation}: Automated bounding box annotation
+	\item \textbf{Dataset Splitting}: Train/validation/test partitioning
+	\item \textbf{Model Training}: YOLO11 fine-tuning
+	\item \textbf{Evaluation}: Performance metrics and analysis
+\end{enumerate}
+
+\subsection{Tools and Technologies}
+
+\begin{table}[H]
+	\centering
+	\begin{tabular}{ll}
+		\toprule
+		\textbf{Component}      & \textbf{Technology}           \\
+		\midrule
+		Object Detection        & YOLO11s (Ultralytics)         \\
+		Deep Learning Framework & PyTorch                       \\
+		Image Processing        & Pillow (PIL)                  \\
+		Data Augmentation       & Google Gemini API             \\
+		Geographic Data         & Google Street View Static API \\
+		Programming Language    & Python 3.12                   \\
+		Version Control         & Git                           \\
+		\bottomrule
+	\end{tabular}
+	\caption{Technology stack overview}
+\end{table}
+
+%=============================================================================
+\section{Data Collection}
+%=============================================================================
+
+\subsection{Overview}
+
+The data collection phase involved systematically sampling locations within Ottawa and retrieving Google Street View imagery from each location at multiple heading angles.
+
+\subsection{Location Sampling}
+
+\subsubsection{Points Manifest}
+
+A points manifest (\texttt{manifests/points.csv}) was created containing 9,600 entries representing 1,200 unique panorama locations. Each panorama was captured at 8 heading angles (0°, 45°, 90°, 135°, 180°, 225°, 270°, 315°) to provide comprehensive street-level coverage.
+
+The manifest schema includes:
+\begin{itemize}
+	\item \texttt{street}: Unique identifier for the location
+	\item \texttt{label}: Human-readable label combining panorama ID and heading
+	\item \texttt{location}: Latitude and longitude coordinates
+	\item \texttt{heading}: Compass direction (0--360°)
+	\item \texttt{pitch}: Camera tilt angle
+	\item \texttt{fov}: Field of view (90°)
+	\item \texttt{pano\_id}: Google Street View panorama identifier
+\end{itemize}
+
+\subsubsection{Geographic Coverage}
+
+The sampled locations cover various urban environments in Ottawa, including:
+\begin{itemize}
+	\item Downtown commercial areas
+	\item Residential neighborhoods
+	\item Parking lots and street parking zones
+\end{itemize}
+
+\subsection{Image Retrieval}
+
+\subsubsection{API Integration}
+
+Images were retrieved using the Google Street View Static API. A custom Python script (\texttt{scripts/02\_fetch\_streetview.py}) was developed to:
+
+\begin{enumerate}
+	\item Read the points manifest
+	\item Construct API requests with appropriate parameters
+	\item Download and store images in a structured directory hierarchy
+	\item Record metadata in an images manifest (\texttt{manifests/images.csv})
+\end{enumerate}
+
+\subsubsection{Directory Structure}
+
+Images were organized by panorama and heading:
+
+\begin{lstlisting}[language=bash]
+data/images_original/
++-- auto_{pano_id}_h0/
+|   +-- {hash}.jpg
++-- auto_{pano_id}_h45/
+|   +-- {hash}.jpg
++-- ...
+\end{lstlisting}
+
+Each image filename is a random hash, while the parent directory encodes the panorama ID and heading angle.
+
+\subsubsection{Resume Capability}
+
+The fetch script implements a resume mechanism using the \texttt{--resume} flag. It checks the existing images manifest and only downloads images not already present, enabling recovery from interrupted sessions.
+
+\subsubsection{Execution Results}
+
+The data collection completed successfully with the following statistics:
+
+\begin{table}[H]
+	\centering
+	\begin{tabular}{lr}
+		\toprule
+		\textbf{Metric}         & \textbf{Value}        \\
+		\midrule
+		Total images downloaded & 9,600                 \\
+		Unique panoramas        & 1,200                 \\
+		Headings per panorama   & 8                     \\
+		Total duration          & 33 minutes 50 seconds \\
+		Average download rate   & 1.78 images/second    \\
+		Manifest entries        & 9,600                 \\
+		\bottomrule
+	\end{tabular}
+	\caption{Data collection execution statistics}
+\end{table}
+
+The manifest was saved to \texttt{manifests/images.csv} with all 9,600 entries successfully recorded.
+\subsection{Data Quality Assurance}
+
+\subsubsection{Duplicate Detection}
+
+A critical issue emerged during data collection: duplicate images were present in the dataset. Two types of duplicates were identified:
+
+\begin{enumerate}
+	\item \textbf{Panorama duplicates}: The same panorama ID appearing multiple times in the manifest
+	\item \textbf{File duplicates}: Multiple files in the same directory (same panorama and heading) with identical content
+\end{enumerate}
+
+\paragraph{Panorama-Level Verification}
+Using PowerShell and Python scripts, we verified that the points manifest contained exactly 1,200 unique panorama IDs, each with 8 heading entries. No duplicate panoramas were found in the manifest.
+
+\paragraph{File-Level Verification}
+The \texttt{jdupes} tool was used to identify byte-identical files. The analysis revealed:
+\begin{itemize}
+	\item One panorama (\texttt{CcKfN3NH1TTKafS0fsXcjA}) had 2 files in 7 of its 8 heading directories
+	\item These duplicates resulted from overlapping data between a previous ZIP archive and the current fetch operation
+\end{itemize}
+
+\subsubsection{Resolution}
+
+Duplicates were removed using:
+
+\begin{lstlisting}[language=bash]
+jdupes -r -d -N data/images_original
+\end{lstlisting}
+
+This command recursively scans, identifies duplicates, preserves the first file in each duplicate set, and deletes the rest without prompting.
+
+\subsubsection{Final Dataset Statistics}
+
+\begin{table}[H]
+	\centering
+	\begin{tabular}{lr}
+		\toprule
+		\textbf{Metric}             & \textbf{Count} \\
+		\midrule
+		Unique panoramas            & 1,200          \\
+		Heading angles per panorama & 8              \\
+		Total images                & 9,600          \\
+		Images manifest entries     & 9,600          \\
+		\bottomrule
+	\end{tabular}
+	\caption{Final dataset statistics after cleanup}
+\end{table}
+
+%=============================================================================
+\section{Image Preprocessing}
+%=============================================================================
+
+\subsection{Motivation}
+
+Google Street View images often contain visual elements at the bottom of the frame that are not relevant to parking detection, including:
+\begin{itemize}
+	\item Copyright watermarks
+	\item Timestamp overlays
+	\item Navigation UI elements
+\end{itemize}
+
+These elements can interfere with model training and should be removed.
+
+\subsection{Implementation}
+
+A cropping script (\texttt{scripts/02b\_crop\_bottom.py}) was developed to remove the bottom 30 pixels from each image.
+
+\subsubsection{Algorithm}
+
+\begin{algorithm}[H]
+	\caption{Bottom Crop Algorithm}
+	\begin{algorithmic}[1]
+		\For{each row in images manifest}
+		\If{status is not ``ok''}
+		\State Skip row
+		\EndIf
+		\If{filename contains ``\_bcN'' suffix}
+		\State Skip (already cropped)
+		\EndIf
+		\If{cropped file exists on disk}
+		\State Skip (already cropped)
+		\EndIf
+		\State Load source image
+		\State Crop to $(0, 0, \text{width}, \text{height} - \text{crop\_px})$
+		\State Save as \texttt{image\_bc30.jpg}
+		\State Update manifest with new file path
+		\EndFor
+	\end{algorithmic}
+\end{algorithm}
+
+\subsubsection{Idempotency}
+
+The script is designed to be idempotent---running it multiple times produces the same result. It detects already-cropped images through:
+\begin{enumerate}
+	\item Filename suffix matching (\texttt{\_bc30})
+	\item Target file existence checking
+\end{enumerate}
+
+\subsubsection{File Preservation}
+
+Original images are preserved on disk. The cropped version is saved as a sibling file with a \texttt{\_bc30} suffix:
+
+\begin{lstlisting}[language=bash]
+Original: data/images_original/.../abc123.jpg
+Cropped:  data/images_original/.../abc123_bc30.jpg
+\end{lstlisting}
+
+The manifest \texttt{file\_path} column is updated to reference the cropped version, while \texttt{source\_file\_path} retains the original path.
+
+\subsection{Results}
+
+The cropping operation was executed with the following results:
+
+\begin{table}[H]
+	\centering
+	\begin{tabular}{lr}
+		\toprule
+		\textbf{Metric}           & \textbf{Count} \\
+		\midrule
+		Total rows in manifest    & 9,600          \\
+		Eligible for cropping     & 9,600          \\
+		Newly cropped             & 3,764          \\
+		Skipped (already cropped) & 5,836          \\
+		Skipped (missing file)    & 0              \\
+		Skipped (bad status)      & 0              \\
+		Skipped (synthetic)       & 0              \\
+		Failed                    & 0              \\
+		\bottomrule
+	\end{tabular}
+	\caption{Cropping operation statistics}
+\end{table}
+
+The idempotent design proved effective: 5,836 images had been cropped in a previous run and were correctly identified and skipped. The remaining 3,764 images (from the most recent fetch) were cropped successfully. Each image now has:
+\begin{itemize}
+	\item Original file (preserved)
+	\item Cropped file (used for training)
+\end{itemize}
+
+%=============================================================================
+\section{Empty Frame Detection}
+%=============================================================================
+
+% TODO: Document after running detection
+\subsection{Overview}
+
+Empty frame detection identifies images that contain no vehicles. These frames are valuable for:
+\begin{itemize}
+	\item Synthetic data generation (clean backgrounds for vehicle insertion)
+	\item Negative samples for training
+\end{itemize}
+
+\subsection{Method}
+
+% TODO: Fill in after running
+\begin{itemize}
+	\item Model used: YOLO11s pretrained on COCO
+	\item Confidence threshold: [TO BE DETERMINED]
+	\item Vehicle classes detected: car, truck, bus, motorcycle
+\end{itemize}
+
+\subsection{Results}
+
+% TODO: Fill in after running
+\begin{itemize}
+	\item Total frames analyzed: [TO BE DETERMINED]
+	\item Empty frames identified: [TO BE DETERMINED]
+	\item Output: \texttt{lists/empty\_candidates.txt}
+\end{itemize}
+
+%=============================================================================
+\section{Synthetic Data Generation}
+%=============================================================================
+
+\subsection{Overview}
+
+Synthetic data generation addresses the scarcity of parking enforcement vehicle images by using generative AI to insert vehicles into empty frames.
+
+\subsection{Method}
+
+The synthesis pipeline used Google's Gemini API with the following configuration:
+
+\begin{itemize}
+	\item API: Google Gemini (gemini-3-pro-image-preview)
+	\item Edit types: Vehicle insertion into empty frames
+	\item Classes generated: enforcement\_vehicle, police\_old, police\_new
+	\item Image resizing: Cover-resize + center-crop to (640, 610)
+\end{itemize}
+
+\subsection{Console Output}
+
+The synthesis completed successfully after processing all candidates:
+
+\begin{lstlisting}[language=bash, basicstyle=\ttfamily\scriptsize]
+Synthesizing: 100%|======...======| 1471/1471 [1:11:33<00:00]
+2026-03-03 03:48:11 - INFO - Created 2658 synthetic images
+2026-03-03 03:48:11 - INFO - Manifest updated: manifests/images.csv
+\end{lstlisting}
+
+\subsection{Output}
+
+The synthesis produced the following results:
+
+\begin{table}[H]
+	\centering
+	\begin{tabular}{lr}
+		\toprule
+		\textbf{Metric}          & \textbf{Value}      \\
+		\midrule
+		Input empty frames       & 1,471               \\
+		Synthetic images created & 2,658               \\
+		Generation time          & 1 hour 11 minutes   \\
+		Output location          & data/images\_synth/ \\
+		\bottomrule
+	\end{tabular}
+	\caption{Synthetic data generation statistics}
+\end{table}
+
+\noindent\textbf{Cost Efficiency:} The entire synthesis operation cost only \$6.23 in Gemini API credits, demonstrating the cost-effectiveness of generative AI for dataset augmentation compared to traditional data collection methods.
+
+\subsection{Iteration Speed from Synthetic Gating and Gemini Generation}
+
+An important practical advantage of this pipeline is iteration speed. Before synthesis, candidate frames are filtered through synthetic gating so only valid street/road scenes are promoted, while non-road and non-street images are routed out of the generation path. In our runs, this reduced the estimated human review effort from approximately 5--6 hours to about 1.5 hours by reducing wasted synthesis calls and manual cleanup time.
+
+Gemini-based generation then produces class-targeted variants directly from approved empty frames, which allows the team to rebalance scarce classes (especially enforcement vehicles) in a single run instead of waiting for additional real-world data collection. Together, gating and controlled synthetic generation create a tighter feedback loop: update prompts or thresholds, regenerate focused samples, retrain, and evaluate quickly.
+
+
+\subsection{Next Steps}
+
+Following synthesis, the dataset requires manual review:
+
+\begin{enumerate}
+	\item Review synthetic images for quality and realism
+	\item Delete nonsensical or failed generations
+	\item Verify bounding box labels match inserted vehicles
+\end{enumerate}
+
+
+\section{Label Generation}
+%=============================================================================
+
+% TODO: Document after running prelabel
+\subsection{Automated Annotation}
+
+\begin{itemize}
+	\item Method: [TO BE DETERMINED]
+	\item Output format: YOLO format (class x\_center y\_center width height)
+	\item Location: \texttt{data/labels\_autogen/}
+\end{itemize}
+
+\subsection{Manual Review}
+
+% TODO: Document after using labeler
+\begin{itemize}
+	\item Tool: Custom web-based labeling UI
+	\item Command: \texttt{make labeler}
+	\item URL: \texttt{http://localhost:8000}
+\end{itemize}
+
+%=============================================================================
+\section{Dataset Preparation}
+%=============================================================================
+
+% TODO: Document after running split
+\subsection{Train/Validation/Test Split}
+
+\begin{itemize}
+	\item Split ratios: [TO BE DETERMINED]
+	\item Grouping strategy: By panorama ID (prevents data leakage)
+	\item Output: \texttt{data/splits/}
+\end{itemize}
+
+%=============================================================================
+\section{Model Training}
+%=============================================================================
+
+% TODO: Document after training
+\subsection{Configuration}
+
+\begin{itemize}
+	\item Base model: YOLO11s
+	\item Epochs: [TO BE DETERMINED]
+	\item Batch size: [TO BE DETERMINED]
+	\item Image size: [TO BE DETERMINED]
+	\item Hardware: [TO BE DETERMINED]
+\end{itemize}
+
+\subsection{Training Metrics}
+
+% TODO: Fill in after training
+\begin{itemize}
+	\item Training loss: [TO BE DETERMINED]
+	\item Validation mAP: [TO BE DETERMINED]
+	\item Training time: [TO BE DETERMINED]
+\end{itemize}
+
+%=============================================================================
+\section{Evaluation}
+%=============================================================================
+
+% TODO: Document after evaluation
+\subsection{Metrics}
+
+\begin{itemize}
+	\item Precision: [TO BE DETERMINED]
+	\item Recall: [TO BE DETERMINED]
+	\item mAP@0.5: [TO BE DETERMINED]
+	\item mAP@0.5:0.95: [TO BE DETERMINED]
+\end{itemize}
+
+\subsection{Per-Class Performance}
+
+\begin{table}[H]
+	\centering
+	\begin{tabular}{lccc}
+		\toprule
+		\textbf{Class}       & \textbf{Precision} & \textbf{Recall} & \textbf{mAP@0.5} \\
+		\midrule
+		vehicle              & [TBD]              & [TBD]           & [TBD]            \\
+		enforcement\_vehicle & [TBD]              & [TBD]           & [TBD]            \\
+		police\_old          & [TBD]              & [TBD]           & [TBD]            \\
+		police\_new          & [TBD]              & [TBD]           & [TBD]            \\
+		\bottomrule
+	\end{tabular}
+	\caption{Per-class detection performance}
+\end{table}
+
+%=============================================================================
+\section{Discussion}
+%=============================================================================
+
+% TODO: Expand after completing experiments
+\subsection{Challenges}
+
+\begin{itemize}
+	\item Duplicate data management
+	\item Limited enforcement vehicle samples
+	\item [ADDITIONAL CHALLENGES TO BE IDENTIFIED]
+\end{itemize}
+
+\subsection{Lessons Learned}
+
+\begin{itemize}
+	\item Importance of idempotent pipeline design
+	\item Value of comprehensive duplicate checking
+	\item [ADDITIONAL LESSONS TO BE IDENTIFIED]
+\end{itemize}
+
+\subsection{Future Work}
+
+\begin{itemize}
+	\item Expand geographic coverage
+	\item Improve synthetic data quality
+	\item Deploy as real-time detection system
+	\item Investigate model quantization for edge deployment
+\end{itemize}
+
+%=============================================================================
+\section{Conclusion}
+%=============================================================================
+
+% TODO: Write final conclusion
+This project demonstrates the application of modern object detection techniques to the domain of parking enforcement. The modular pipeline architecture enables systematic data collection, preprocessing, and model development. [CONCLUSION TO BE COMPLETED]
+
+%=============================================================================
+\section*{References}
+%=============================================================================
+
+\begin{thebibliography}{9}
+
+	\bibitem{yolo11}
+	Ultralytics.
+	\textit{YOLO11}.
+	\url{https://docs.ultralytics.com/models/yolo11/}
+	[Accessed: 2026-03-01]
+
+	\bibitem{streetview}
+	Google.
+	\textit{Street View Static API}.
+	\url{https://developers.google.com/maps/documentation/streetview/}
+	[Accessed: 2026-03-01]
+
+	\bibitem{gemini}
+	Google.
+	\textit{Gemini API}.
+	\url{https://ai.google.dev/docs}
+	[Accessed: 2026-03-01]
+
+	\bibitem{pytorch}
+	PyTorch.
+	\textit{PyTorch Documentation}.
+	\url{https://pytorch.org/docs/}
+	[Accessed: 2026-03-01]
+
+\end{thebibliography}
+
+%=============================================================================
+\section*{Appendix A: Project Structure}
+%=============================================================================
+
+\begin{lstlisting}[language=bash]
+parkopticon-yolo11s-bootstrap/
++-- scripts/
+|   +-- 01_make_points_template.py
+|   +-- 01b_expand_points_by_area.py
+|   +-- 02_fetch_streetview.py
+|   +-- 02b_crop_bottom.py
+|   +-- 03_detect_empty_frames.py
+|   +-- 04_synthesize_vehicle_edits.py
+|   +-- 05_prelabel_boxes.py
+|   +-- 06_split_dataset.py
+|   +-- 07_train_yolo.py
+|   +-- 08_eval_report.py
++-- labeler/
+|   +-- app.py
+|   +-- static/
++-- data/
+|   +-- images_original/
+|   +-- images_synth/
+|   +-- labels_autogen/
+|   +-- labels_final/
+|   +-- splits/
++-- manifests/
+|   +-- points.csv
+|   +-- images.csv
++-- reports/
++-- dataset.yaml
++-- requirements.txt
++-- Makefile
++-- .env
+\end{lstlisting}
+
+%=============================================================================
+\section*{Appendix B: Commands Reference}
+%=============================================================================
+
+\begin{table}[H]
+	\centering
+	\begin{tabular}{ll}
+		\toprule
+		\textbf{Operation} & \textbf{Command}                                          \\
+		\midrule
+		Fetch images       & \texttt{python scripts/02\_fetch\_streetview.py}          \\
+		Crop images        & \texttt{python scripts/02b\_crop\_bottom.py}              \\
+		Detect empty       & \texttt{python scripts/03\_detect\_empty\_frames.py}      \\
+		Synthesize         & \texttt{python scripts/04\_synthesize\_vehicle\_edits.py} \\
+		Prelabel           & \texttt{python scripts/05\_prelabel\_boxes.py}            \\
+		Launch labeler     & \texttt{make labeler}                                     \\
+		Split dataset      & \texttt{python scripts/06\_split\_dataset.py}             \\
+		Train model        & \texttt{python scripts/07\_train\_yolo.py}                \\
+		Evaluate           & \texttt{python scripts/08\_eval\_report.py}               \\
+		\bottomrule
+	\end{tabular}
+	\caption{Pipeline commands reference}
+\end{table}
+
+\end{document}

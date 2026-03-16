@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ParkOpticon Web UI</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #f4f4f5; color: #333; margin: 0; padding: 2rem; }
+        .container { max-width: 800px; margin: 0 auto; background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        h1 { margin-top: 0; color: #111; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 1rem; margin-top: 1.5rem; }
+        .card { display: block; text-decoration: none; color: inherit; border: 1px solid #e2e8f0; border-radius: 6px; padding: 1.5rem; transition: all 0.2s; }
+        .card:hover { border-color: #3b82f6; box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15); transform: translateY(-2px); }
+        .card h2 { margin: 0 0 0.5rem 0; font-size: 1.25rem; color: #2563eb; }
+        .card p { margin: 0; font-size: 0.9rem; color: #64748b; line-height: 1.4; }
+        .dir-selector { margin-bottom: 1.5rem; padding: 12px; background: #f8fafc; border-radius: 6px; display: flex; gap: 10px; align-items: center; }
+        .dir-selector label { font-weight: 600; color: #475569; }
+        .dir-selector select { padding: 8px 12px; border-radius: 4px; border: 1px solid #cbd5e1; min-width: 200px; }
+        .dir-selector .current { color: #64748b; font-size: 0.9rem; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="dir-selector">
+            <label>Working Directory:</label>
+            <select id="dirSelect">
+                <option value="">Loading...</option>
+            </select>
+            <span class="current" id="currentDir"></span>
+        </div>
+        
+        <h1>ParkOpticon Tools</h1>
+        <p>Unified interface for managing the YOLO11s dataset pipeline.</p>
+        
+        <div class="grid">
+            <a href="/labeler" class="card">
+                <h2>Labeler</h2>
+                <p>Review bounding boxes, edit labels, and approve images for training.</p>
+            </a>
+            <a href="/synth-gen" class="card">
+                <h2>Synthetic Generation</h2>
+                <p>Generate synthetic vehicles in empty street views for testing prompts.</p>
+            </a>
+            <a href="/synth-review-empty" class="card">
+                <h2>Empty Review</h2>
+                <p>Review and exclude images that shouldn't be used as empty backgrounds.</p>
+            </a>
+            <a href="/synth-cleanup" class="card">
+                <h2>Synthetic Cleanup</h2>
+                <p>Review bulk-generated synthetic images and delete poor quality outputs.</p>
+            </a>
+            <a href="/synth-review-buckets" class="card">
+                <h2>Synthetic Review Buckets</h2>
+                <p>Review EV-SNV / EV-SE / SVO-E / SVO-NV, apply touch-ups, and bulk-approve/reject.</p>
+            </a>
+            <a href="/training-viewer" class="card">
+                <h2>Training Viewer</h2>
+                <p>Browse training runs in /runs/, view weights, plots, and results.</p>
+            </a>
+            <a href="/map-selector" class="card">
+                <h2>Map Selector</h2>
+                <p>Select areas on a map to sample Street View panoramas.</p>
+            </a>
+            <a href="/point-manager" class="card">
+                <h2>Point Manager</h2>
+                <p>Visualize and manage sample points from manifest CSVs.</p>
+            </a>
+            <a href="/streetview-tester" class="card">
+                <h2>Street View Tester</h2>
+                <p>Test Street View parameters interactively.</p>
+            </a>
+        </div>
+    </div>
+
+    <script>
+        const dirSelect = document.getElementById('dirSelect');
+        
+        async function loadDirectories() {
+            try {
+                const res = await fetch('/api/directories/list');
+                if (!res.ok) throw new Error('API not available');
+                const dirs = await res.json();
+                
+                const currentRes = await fetch('/api/directories/current');
+                const current = await currentRes.json();
+                
+                dirSelect.innerHTML = '';
+                for (const d of dirs) {
+                    const opt = document.createElement('option');
+                    opt.value = d.path;
+                    opt.textContent = d.label;
+                    dirSelect.appendChild(opt);
+                }
+                
+                if (current.path) {
+                    dirSelect.value = current.path;
+                    document.getElementById('currentDir').textContent = '(current: ' + current.name + ')';
+                }
+            } catch (e) {
+                console.error(e);
+                dirSelect.innerHTML = '<option value="">Error loading (Restart server)</option>';
+            }
+        }
+        
+        dirSelect.addEventListener('change', async () => {
+            const path = dirSelect.value;
+            if (!path) return;
+            
+            await fetch('/api/directories/set', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({path})
+            });
+            
+            document.getElementById('currentDir').textContent = '(current: ' + dirSelect.options[dirSelect.selectedIndex].text + ')';
+            alert('Directory changed to: ' + path + '\n\nNote: Some pages may need to be refreshed to see the new data.');
+        });
+        
+        loadDirectories();
+    </script>
+</body>
+</html>

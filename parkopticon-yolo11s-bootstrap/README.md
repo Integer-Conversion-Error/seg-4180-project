@@ -57,11 +57,18 @@ make crop
 # Step 3: Detect empty frames (no vehicles)
 make empty
 
+# Step 3b (new): this now also performs Gemini JSON scene gating,
+# routes non-street/non-road images to traceable stash directories,
+# and writes lists/valid_road_candidates.txt
+
 # Step 4: Generate synthetic vehicle edits (requires Gemini API)
 make synth
 
 # Step 5: Auto-generate bounding box labels
 make prelabel
+
+# Step 5b (new): prelabel now emits a histogram PNG of vehicle box counts
+# (excluding 0-box, non-road, non-street, and excluded images)
 
 # Step 6: Review labels in the UI
 make labeler
@@ -396,11 +403,101 @@ After running each stage:
 1. **After `make fetch`**: Images in `data/images_original/{street}/{image_id}.jpg`
 2. **After `make crop`**: Cropped siblings like `*_bc30.jpg`, manifest paths updated
 3. **After `make empty`**: `lists/empty_candidates.txt` with image IDs
-4. **After `make synth`**: Synthetic images in `data/images_synth/{edit_type}/`
-5. **After `make prelabel`**: Labels in `data/labels_autogen/{image_id}.txt`
-6. **After `make split`**: Train/val/test in `data/splits/{split}/`
-7. **After `make train`**: Model weights in `runs/detect/parkopticon_vehicle_enforcement/weights/`
-8. **After `make eval`**: Reports in `reports/eval_report.{md,json}`
+4. **After `make empty`**:
+   - `lists/valid_road_candidates.txt` (preferred synthesis input)
+   - `lists/non_road_candidates.txt`
+   - `lists/non_street_candidates.txt`
+   - stashed excluded images under `data/images_excluded/non_road` and `data/images_excluded/non_street`
+5. **After `make synth`**: Synthetic images in `data/images_synth/{edit_type}/`
+   - plus parameterized retention lists for non-road hard negatives (`lists/non_road_keep.txt`, `lists/non_road_drop.txt`)
+6. **After `make prelabel`**: Labels in `data/labels_autogen/{image_id}.txt` and histogram at `reports/prelabel_vehicle_count_hist.png`
+7. **After `make split`**: Train/val/test in `data/splits/{split}/`
+8. **After `make train`**: Model weights in `runs/detect/parkopticon_vehicle_enforcement/weights/`
+9. **After `make eval`**: Reports in `reports/eval_report.{md,json}`
+
+## Clean Run Prerequisites
+
+To do a **fresh re-run** while keeping existing downloaded images (e.g., for benchmarking different gating prompts or synthesis parameters), you must reset several directories and files:
+
+### Option 1: Create a New Run Directory (Recommended)
+
+```bash
+# Create fresh benchmark directory
+mkdir -p Benchmark_Run_002/data Benchmark_Run_002/manifests Benchmark_Run_002/lists
+
+# Copy only original images (no synth, no excluded)
+cp -r data/images_original Benchmark_Run_002/data/
+
+# Copy starting points
+# Option A: Use original points template
+cp manifests/points.csv Benchmark_Run_002/manifests/
+
+# Option B: Use a backup of images.csv from BEFORE any processing
+cp manifests/images_backup.csv Benchmark_Run_002/manifests/images.csv
+
+# Run pipeline in new directory
+cd Benchmark_Run_002
+python ../scripts/02_fetch_streetview.py --run-dir .
+python ../scripts/03_detect_empty_frames.py --run-dir .
+# ... continue with other stages
+```
+
+### Option 2: Clean In-Place (Destructive)
+
+```bash
+# 1. Clear all list files
+rm -f lists/*.txt
+
+# 2. Remove generated boxes
+rm -f manifests/boxes_autogen*.jsonl
+
+# 3. Remove synthetic images
+rm -rf data/images_synth/*
+
+# 4. Remove auto-generated labels
+rm -rf data/labels_autogen/*
+
+# 5. Remove final labels (or backup first)
+rm -rf data/labels_final/*
+
+# 6. Move excluded images back to original location
+mv data/images_excluded/non_road/* data/images_original/ 2>/dev/null
+mv data/images_excluded/non_street/* data/images_original/ 2>/dev/null
+rm -rf data/images_excluded/*
+
+# 7. Reset manifest processing columns
+# You need a backup of images.csv from before processing, OR re-run fetch
+# to regenerate it from points.csv
+```
+
+### Critical: Manifest State
+
+The `manifests/images.csv` file accumulates processing columns:
+- `num_boxes_autogen`
+- `route_category`
+- `street_scene_valid`, `road_scene_valid`
+- `gemini_gate_json`
+- etc.
+
+**The scripts use these columns to skip already-processed items.** If you don't reset the manifest, re-running will skip everything.
+
+**Best practice:** Keep a backup of `images.csv` after fetch but before any processing:
+
+```bash
+# After make fetch (or python scripts/02_fetch_streetview.py)
+cp manifests/images.csv manifests/images_post_fetch_backup.csv
+```
+
+### Quick Clean Script
+
+For convenience, you can use the `--nuke` flag on the detection stage:
+
+```bash
+# This wipes run artifacts but preserves original images
+python scripts/03_detect_empty_frames.py --nuke
+```
+
+Note: `--nuke` resets detection/gating artifacts but does NOT remove synthetic images or labels.
 
 ## Configuration
 

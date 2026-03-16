@@ -1,0 +1,2912 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Street View Point Manager</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0d0d0d;
+            --surface: #1a1a1a;
+            --surface-hover: #252525;
+            --border: #333;
+            --text: #e5e5e5;
+            --text-dim: #888;
+            --accent: #ff6b35;
+            --accent-dim: #ff6b3533;
+            --success: #4ade80;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        header {
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            padding: 10px 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        h1 { font-size: 15px; font-weight: 600; }
+        h1 span { color: var(--accent); }
+
+        .header-actions { display: flex; gap: 8px; }
+
+        button {
+            font-family: 'Outfit', sans-serif;
+            background: var(--surface-hover);
+            color: var(--text);
+            border: 1px solid var(--border);
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        button:hover { background: var(--border); }
+        button.primary { background: var(--accent); border-color: var(--accent); color: #000; }
+        button.primary:hover { background: #ff8555; }
+
+        .main {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+        }
+
+        .sidebar-left {
+            width: 800px;
+            background: var(--surface);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .sidebar-right {
+            width: 280px;
+            background: var(--surface);
+            border-left: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .sidebar-section {
+            padding: 12px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .sidebar-section h3 {
+            font-size: 10px;
+            font-weight: 600;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 10px;
+        }
+
+        .preview-section {
+            padding: 12px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .preview-nav {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 10px;
+            align-items: center;
+        }
+
+        .preview-nav button {
+            padding: 4px 8px;
+            font-size: 11px;
+        }
+
+        .preview-nav span {
+            flex: 1;
+            text-align: center;
+            font-size: 11px;
+            color: var(--accent);
+        }
+
+        .heading-slider {
+            margin: 10px 0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .heading-slider label {
+            font-size: 10px;
+            color: var(--text-dim);
+            min-width: 50px;
+        }
+
+        .heading-slider input[type="range"] {
+            flex: 1;
+            height: 4px;
+            -webkit-appearance: none;
+            background: var(--border);
+            border-radius: 2px;
+            outline: none;
+        }
+
+        .heading-slider input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 14px;
+            height: 14px;
+            background: var(--accent);
+            border-radius: 50%;
+            cursor: pointer;
+        }
+
+        .heading-slider .value {
+            font-size: 11px;
+            color: var(--accent);
+            min-width: 35px;
+            text-align: right;
+        }
+
+        .preview-image {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 1/1;
+            background: #000;
+            border-radius: 4px;
+            overflow: hidden;
+            display: flex;
+            align-items: flex-start;
+        }
+
+        .preview-image img {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+
+        .preview-info {
+            position: absolute;
+            bottom: 6px;
+            left: 6px;
+            background: rgba(0,0,0,0.75);
+            padding: 3px 6px;
+            border-radius: 3px;
+            font-size: 9px;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .template-row {
+            display: grid;
+            grid-template-columns: 40px 50px 1fr 1fr;
+            gap: 4px;
+            margin-bottom: 4px;
+            align-items: center;
+        }
+
+        .template-row label {
+            font-size: 10px;
+            color: var(--text-dim);
+            text-align: center;
+        }
+
+        .template-row label.heading {
+            color: var(--accent);
+            font-weight: 600;
+        }
+
+        .template-row label.heading.active {
+            background: var(--accent);
+            color: var(--bg);
+            border-radius: 3px;
+            padding: 2px 4px;
+        }
+
+        .template-row input[type="range"] {
+            width: 100%;
+            height: 4px;
+            -webkit-appearance: none;
+            background: var(--border);
+            border-radius: 2px;
+            outline: none;
+        }
+
+        .slider-cell {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .slider-inline-label {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 9px;
+            color: var(--accent);
+            white-space: nowrap;
+        }
+
+        .slider-cell input[type="range"] {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .template-row input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 12px;
+            height: 12px;
+            background: var(--accent);
+            border-radius: 50%;
+            cursor: pointer;
+        }
+
+        .slider-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            text-align: center;
+            color: var(--accent);
+            background: var(--bg);
+            padding: 2px 4px;
+            border-radius: 2px;
+        }
+
+        .param-import {
+            margin-top: 10px;
+            padding: 10px;
+            background: var(--bg);
+            border-radius: 4px;
+            border: 1px solid var(--border);
+        }
+
+        .param-import label {
+            font-size: 10px;
+            color: var(--text-dim);
+            display: block;
+            margin-bottom: 6px;
+        }
+
+        .param-import textarea {
+            width: 100%;
+            height: 40px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 3px;
+            color: var(--text);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            padding: 6px;
+            resize: none;
+        }
+
+        .param-import input[type="text"],
+        .param-import select {
+            width: 100%;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 3px;
+            color: var(--text);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            padding: 6px;
+        }
+
+        .preset-actions {
+            display: flex;
+            gap: 6px;
+            margin-top: 6px;
+        }
+
+        .preset-actions button {
+            margin-top: 0;
+            width: auto;
+            flex: 1;
+        }
+
+        .param-import button {
+            margin-top: 6px;
+            width: 100%;
+        }
+
+        .points-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px;
+        }
+
+        .point-item {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 8px 10px;
+            margin-bottom: 4px;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .point-item:hover { border-color: #555; }
+        .point-item.selected { 
+            border-color: var(--accent); 
+            background: var(--accent-dim);
+        }
+
+        .point-item .coords { 
+            font-family: 'JetBrains Mono', monospace; 
+            font-size: 11px; 
+        }
+
+        .point-item .meta { 
+            font-size: 9px; 
+            color: var(--text-dim); 
+            margin-top: 2px; 
+        }
+
+        .point-item .delete-btn {
+            position: absolute;
+            right: 6px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: transparent;
+            border: none;
+            color: var(--text-dim);
+            font-size: 16px;
+            cursor: pointer;
+            padding: 2px 6px;
+            border-radius: 3px;
+        }
+
+        .point-item .delete-btn:hover {
+            background: #c00;
+            color: white;
+        }
+
+        .point-item {
+            position: relative;
+        }
+
+        #map { 
+            flex: 1; 
+            background: #111;
+        }
+
+        .leaflet-container {
+            height: 100% !important;
+            width: 100% !important;
+            background: #111;
+        }
+
+        .custom-marker {
+            width: 24px;
+            height: 24px;
+            background: var(--accent);
+            border-radius: 50% 50% 50% 0;
+            transform: rotate(-45deg);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 2px 8px rgba(255, 107, 53, 0.4);
+        }
+
+        .custom-marker.selected {
+            background: var(--success);
+            box-shadow: 0 2px 8px rgba(74, 222, 128, 0.5);
+        }
+
+        .selection-info {
+            font-size: 11px;
+            color: var(--text-dim);
+            padding: 8px 12px;
+            border-top: 1px solid var(--border);
+        }
+
+        .selection-info strong { color: var(--accent); }
+
+        .api-counter {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: var(--surface);
+            border-top: 1px solid var(--border);
+            padding: 4px 12px;
+            font-size: 10px;
+            color: var(--text-dim);
+            display: flex;
+            gap: 20px;
+            z-index: 1000;
+        }
+
+        .api-counter span { color: var(--accent); }
+
+        .sampler-controls {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .sampler-controls label {
+            font-size: 10px;
+            color: var(--text-dim);
+        }
+
+        .sampler-controls input,
+        .sampler-controls textarea,
+        .sampler-controls select {
+            width: 100%;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 3px;
+            color: var(--text);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            padding: 6px;
+        }
+
+        .sampler-controls textarea {
+            height: 72px;
+            resize: vertical;
+        }
+
+        .sampler-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px;
+        }
+
+        .sampler-grid .full {
+            grid-column: 1 / -1;
+        }
+
+        .sampler-status {
+            margin-top: 6px;
+            font-size: 10px;
+            color: var(--text-dim);
+            line-height: 1.35;
+            white-space: pre-wrap;
+        }
+
+        .sampler-dryrun-preview {
+            display: none;
+            margin-top: 6px;
+            border: 1px dashed var(--border);
+            border-radius: 4px;
+            padding: 6px;
+            font-size: 10px;
+            color: var(--text-dim);
+            background: rgba(103, 232, 249, 0.08);
+        }
+
+        .sampler-dryrun-preview .title {
+            color: var(--text);
+            margin-bottom: 4px;
+        }
+
+        .sampler-dryrun-preview .list {
+            display: grid;
+            gap: 2px;
+            font-family: 'JetBrains Mono', monospace;
+        }
+    </style>
+</head>
+<body>
+    <a href="/" style="display:inline-block; margin: 10px 20px; text-decoration: none; color: #2563eb; font-weight: bold;">&larr; Back to Tools</a>
+    <header>
+        <h1>Street View <span>Point Manager</span></h1>
+        <div class="header-actions">
+            <button type="button" onclick="clearSelection()">Clear</button>
+            <button type="button" onclick="selectAll()">Select All</button>
+            <button type="button" class="primary" onclick="applyTemplate()">Apply Template</button>
+            <button type="button" class="primary" onclick="saveToRunDir()">Save to Run Dir</button>
+            <button type="button" onclick="downloadCSV()">Download (Local)</button>
+        </div>
+    </header>
+    
+    <div class="main">
+        <!-- Left sidebar: Template -->
+        <div class="sidebar-left">
+            <div class="preview-section">
+                <h3>Preview</h3>
+                <div class="preview-nav">
+                    <button type="button" onclick="prevPreview()">←</button>
+                    <span id="preview-dir">1 / 8</span>
+                    <button type="button" onclick="nextPreview()">→</button>
+                    <button type="button" onclick="playPreview()" id="play-btn">▶</button>
+                </div>
+                <div class="heading-slider">
+                    <label>Heading:</label>
+                    <input type="range" id="heading-slider" min="0" max="360" value="0" oninput="updateHeading(this.value)">
+                    <span class="value" id="heading-value">0°</span>
+                </div>
+                <div class="preview-image" id="preview-image-wrap">
+                    <img id="preview-img" alt="Street View">
+                    <div class="preview-info" id="preview-info">Select a point</div>
+                </div>
+            </div>
+
+            <div class="sidebar-section" style="flex:1;overflow-y:auto">
+                <h3>Template (8 directions)</h3>
+                <p style="font-size:9px;color:var(--text-dim);margin-bottom:8px">
+                    Headings: base + 0°, +45°, +90°...
+                </p>
+                
+                <div id="template-rows"></div>
+
+                <div class="param-import" style="margin-top: 10px;">
+                    <label>Bottom Crop (px):</label>
+                    <input type="range" id="bottom-crop" value="0" min="0" max="200"
+                           oninput="updateBottomCrop(this.value)">
+                    <span id="bottom-crop-val" style="color: var(--accent); margin-left: 8px;">0px</span>
+                </div>
+
+                <div class="param-import">
+                    <label>Template Presets:</label>
+                    <input type="text" id="template-name" placeholder="Template name">
+                    <div class="preset-actions">
+                        <button type="button" onclick="saveTemplatePreset()">Save</button>
+                        <button type="button" onclick="loadTemplatePreset()">Load</button>
+                        <button type="button" onclick="deleteTemplatePreset()">Delete</button>
+                    </div>
+                    <select id="template-preset-select" style="margin-top: 6px;"></select>
+                </div>
+
+                <div class="param-import">
+                    <label>Import from Tester:</label>
+                    <textarea id="import-params" placeholder="Paste params..."></textarea>
+                    <button type="button" onclick="importFromParams()">Apply</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Map -->
+        <div id="map"></div>
+        
+        <!-- Right sidebar: Points -->
+        <div class="sidebar-right">
+            <div class="sidebar-section">
+                <h3>Import Points</h3>
+                <button type="button" onclick="document.getElementById('import-input').click()" style="width:100%">Import CSV</button>
+                <input type="file" id="import-input" accept=".csv" style="display:none" onchange="importCSV(this)">
+            </div>
+
+            <div class="sidebar-section">
+                <h3>Fetch Street View</h3>
+                <div class="sampler-controls">
+                    <div class="sampler-grid">
+                        <div>
+                            <label>Scope</label>
+                            <select id="bulk-fetch-scope">
+                                <option value="all">All Points</option>
+                                <option value="selected">Selected Points</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label>Image Size</label>
+                            <input type="number" id="bulk-fetch-size" min="128" max="2048" value="640">
+                        </div>
+                    </div>
+                    <button type="button" id="bulk-fetch-btn" onclick="fetchStreetViewBatch()">Fetch & Download ZIP</button>
+                    <div class="sampler-status" id="bulk-fetch-status">Idle</div>
+                </div>
+            </div>
+
+            <div class="sidebar-section">
+                <h3>Append By Area</h3>
+                <div class="sampler-controls">
+                    <div>
+                        <label>Area Mode</label>
+                        <select id="sampler-area-mode" onchange="updateAreaModeUI()">
+                            <option value="bbox">BBox</option>
+                            <option value="polygon">Polygon GeoJSON</option>
+                        </select>
+                    </div>
+
+                    <div id="sampler-bbox-wrap">
+                        <label>BBox (min_lat,min_lng,max_lat,max_lng)</label>
+                        <input type="text" id="sampler-bbox" value="40.5,-74.1,40.9,-73.7">
+                        <div style="display:flex;gap:6px;margin-top:6px;">
+                            <button type="button" onclick="startBBoxDrawOnMap()">Draw BBox</button>
+                            <button type="button" onclick="useCurrentViewAsBBox()">Use View</button>
+                        </div>
+                    </div>
+
+                    <div id="sampler-polygon-wrap" style="display:none;">
+                        <label>Polygon GeoJSON</label>
+                        <textarea id="sampler-polygon" oninput="clearSamplerSegmentation()" placeholder='{"type":"Polygon","coordinates":[[[-74.1,40.5],[-73.7,40.5],[-73.7,40.9],[-74.1,40.9],[-74.1,40.5]]]}'></textarea>
+                        <div style="display:flex;gap:6px;margin-top:6px;">
+                            <button type="button" onclick="startPolygonDrawOnMap()">Draw Polygon</button>
+                            <button type="button" onclick="finishPolygonDrawOnMap()">Finish</button>
+                            <button type="button" onclick="useCurrentViewAsPolygon()">Use View</button>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:6px;margin-top:6px;">
+                            <input type="checkbox" id="sampler-segment-enabled" checked>
+                            <label for="sampler-segment-enabled" style="margin:0;">Segment irregular shape into bounding boxes</label>
+                        </div>
+                        <div style="display:flex;gap:6px;margin-top:6px;">
+                            <input type="number" id="sampler-segment-size" min="5" value="80" style="flex:1;" placeholder="Box size (m)">
+                            <button type="button" onclick="buildPolygonSegmentsFromUI()">Build Segments</button>
+                        </div>
+                        <div id="sampler-segment-count" style="font-size:10px;color:var(--text-dim);margin-top:4px;">Segments: 0</div>
+                    </div>
+
+                    <button type="button" onclick="clearSamplerAreaOverlay()">Clear Area Overlay</button>
+
+                    <div class="sampler-grid">
+                        <div>
+                            <label>Target Panos</label>
+                            <input type="number" id="sampler-target" min="0" value="200">
+                        </div>
+                        <div>
+                            <label>Radius (m)</label>
+                            <input type="number" id="sampler-radius" min="1" value="50">
+                        </div>
+                        <div>
+                            <label>Min Spacing (m)</label>
+                            <input type="number" id="sampler-spacing" min="0" value="40">
+                        </div>
+                        <div>
+                            <label>Seed</label>
+                            <input type="number" id="sampler-seed" value="123">
+                        </div>
+                        <div>
+                            <label>Max Attempts</label>
+                            <input type="number" id="sampler-attempts" min="1" value="10000">
+                        </div>
+                        <div>
+                            <label>Bottom Crop</label>
+                            <input type="text" id="sampler-bottom-crop" placeholder="uses preview bottom crop">
+                        </div>
+                        <div class="full">
+                            <label>Preview Template Directions</label>
+                            <div id="sampler-template-summary" style="font-size:10px;color:var(--text-dim);line-height:1.35;">Using preview template settings.</div>
+                        </div>
+                        <div class="full">
+                            <label>Label Prefix</label>
+                            <input type="text" id="sampler-label-prefix" value="auto">
+                        </div>
+                        <div class="full" style="display:flex;align-items:center;gap:6px;">
+                            <input type="checkbox" id="sampler-dry-run" style="width:auto;" checked>
+                            <label for="sampler-dry-run" style="margin:0;">Dry Run (do not append rows)</label>
+                        </div>
+                        <div class="full">
+                            <label>API Key Override (optional)</label>
+                            <input type="text" id="sampler-api-key" placeholder="uses embedded API key">
+                        </div>
+                    </div>
+
+                    <button type="button" id="sampler-run-btn" class="primary" onclick="appendByAreaSampling()">Append New Panos</button>
+                    <div class="sampler-status" id="sampler-status">Idle</div>
+                    <div class="sampler-dryrun-preview" id="sampler-dryrun-preview"></div>
+                </div>
+            </div>
+            
+            <div class="points-list" id="points-list"></div>
+            
+            <div class="selection-info">
+                <strong id="selection-count">0</strong> selected
+            </div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script>
+        const GSV_API_KEY = 'AIzaSyDtL6_O4JqV2j3FRaOxYRIibjoJPSP-VKs';
+        const BASE_COLUMNS = ['street', 'label', 'location', 'heading', 'pitch', 'fov', 'radius', 'bottom_crop'];
+        const ENRICHMENT_COLUMNS = ['source', 'sample_location', 'pano_id', 'pano_lat', 'pano_lng', 'pano_date', 'status', 'group_id', 'created_at'];
+        const IMAGE_MANIFEST_COLUMNS = [
+            'image_id', 'file_path', 'split', 'parent_image_id', 'is_synthetic',
+            'edit_type', 'expected_inserted_class', 'street', 'input_location',
+            'heading', 'pitch', 'fov', 'pano_id', 'pano_lat', 'pano_lng', 'status',
+            'num_boxes_autogen', 'needs_review', 'review_status', 'created_at'
+        ];
+
+        let csvColumns = [...BASE_COLUMNS];
+        let points = [];
+        let selectedIds = new Set();
+        let map, markers = {};
+        
+        let previewPoint = null;
+        let previewDir = 0;
+        let sliderHeading = 0;
+        let playInterval = null;
+        let headingDebounce = null;
+        let pendingHeading = null;
+        let templateDebounce = null;
+        let isSampling = false;
+        let isBulkFetching = false;
+        let samplerDrawMode = null;
+        let samplerDrawFirstCorner = null;
+        let samplerDraftLatLngs = [];
+        let samplerAreaLayer = null;
+        let samplerDraftLayer = null;
+        let samplerDraftVertices = [];
+        let samplerSegmentationLayer = null;
+        let samplerSegmentBoxes = [];
+        let samplerDryRunPreviewLayer = null;
+        
+        let template = {
+            baseHeading: 180,
+            bottomCrop: 0,
+            directions: Array(8).fill(null).map(() => ({ pitch: 0, fov: 80 }))
+        };
+
+        const PREVIEW_SOURCE_SIZE = 640;
+        const TEMPLATE_SETTINGS_KEY = 'point_manager_template_settings_v1';
+        const TEMPLATE_PRESETS_KEY = 'point_manager_template_presets_v1';
+
+        function createDefaultDirections() {
+            return Array(8).fill(null).map(() => ({ pitch: 0, fov: 80 }));
+        }
+
+        function clampBottomCrop(value) {
+            return Math.max(0, Math.min(200, value));
+        }
+
+        function normalizeHeading(value) {
+            const parsed = Number.parseInt(value, 10);
+            if (Number.isNaN(parsed)) return 180;
+            return ((parsed % 360) + 360) % 360;
+        }
+
+        function normalizeDirections(rawDirections) {
+            const defaults = createDefaultDirections();
+            if (!Array.isArray(rawDirections)) return defaults;
+
+            return defaults.map((fallback, index) => {
+                const raw = rawDirections[index] || {};
+                const pitchValue = Number.parseInt(raw.pitch, 10);
+                const fovValue = Number.parseInt(raw.fov, 10);
+
+                return {
+                    pitch: Number.isNaN(pitchValue) ? fallback.pitch : Math.max(-90, Math.min(90, pitchValue)),
+                    fov: Number.isNaN(fovValue) ? fallback.fov : Math.max(30, Math.min(120, fovValue))
+                };
+            });
+        }
+
+        function applyPreviewCrop() {
+            const container = document.getElementById('preview-image-wrap');
+            const image = document.getElementById('preview-img');
+            if (!container || !image) return;
+
+            const baseSize = container.clientWidth;
+            if (!baseSize) return;
+
+            const cropDisplay = Math.round((template.bottomCrop / PREVIEW_SOURCE_SIZE) * baseSize);
+            const visibleHeight = Math.max(40, baseSize - cropDisplay);
+            container.style.height = `${visibleHeight}px`;
+        }
+
+        function getCurrentTemplateSnapshot() {
+            return {
+                baseHeading: template.baseHeading,
+                bottomCrop: template.bottomCrop,
+                directions: template.directions.map((entry) => ({
+                    pitch: entry.pitch,
+                    fov: entry.fov
+                }))
+            };
+        }
+
+        function applyTemplateState(state) {
+            template.baseHeading = normalizeHeading(state.baseHeading);
+
+            const loadedCrop = Number.parseInt(state.bottomCrop, 10);
+            template.bottomCrop = Number.isNaN(loadedCrop) ? 0 : clampBottomCrop(loadedCrop);
+            template.directions = normalizeDirections(state.directions);
+
+            sliderHeading = template.baseHeading;
+
+            const headingSlider = document.getElementById('heading-slider');
+            const headingValue = document.getElementById('heading-value');
+            const cropInput = document.getElementById('bottom-crop');
+            const cropValue = document.getElementById('bottom-crop-val');
+
+            if (headingSlider) headingSlider.value = `${sliderHeading}`;
+            if (headingValue) headingValue.textContent = `${sliderHeading}°`;
+            if (cropInput) cropInput.value = `${template.bottomCrop}`;
+            if (cropValue) cropValue.textContent = `${template.bottomCrop}px`;
+
+            renderTemplateRows();
+            updateSamplerTemplateSummary();
+            applyPreviewCrop();
+            requestAnimationFrame(applyPreviewCrop);
+
+            if (previewPoint) {
+                previewPoint.heading = template.baseHeading;
+                updateUI();
+            }
+        }
+
+        function saveTemplateSettings() {
+            localStorage.setItem(TEMPLATE_SETTINGS_KEY, JSON.stringify(getCurrentTemplateSnapshot()));
+        }
+
+        function loadTemplateSettings() {
+            let settings = {};
+            try {
+                settings = JSON.parse(localStorage.getItem(TEMPLATE_SETTINGS_KEY) || '{}');
+            } catch (error) {
+                settings = {};
+            }
+
+            applyTemplateState({
+                baseHeading: settings.baseHeading,
+                bottomCrop: settings.bottomCrop,
+                directions: settings.directions
+            });
+        }
+
+        function getStoredTemplatePresets() {
+            let presets = {};
+            try {
+                presets = JSON.parse(localStorage.getItem(TEMPLATE_PRESETS_KEY) || '{}');
+            } catch (error) {
+                presets = {};
+            }
+
+            if (!presets || typeof presets !== 'object' || Array.isArray(presets)) {
+                return {};
+            }
+
+            return presets;
+        }
+
+        function setStoredTemplatePresets(presets) {
+            localStorage.setItem(TEMPLATE_PRESETS_KEY, JSON.stringify(presets));
+        }
+
+        function refreshTemplatePresetSelect(selectedName = '') {
+            const select = document.getElementById('template-preset-select');
+            if (!select) return;
+
+            const presets = getStoredTemplatePresets();
+            const names = Object.keys(presets).sort((a, b) => a.localeCompare(b));
+
+            select.innerHTML = '';
+
+            const placeholder = document.createElement('option');
+            placeholder.value = '';
+            placeholder.textContent = names.length > 0 ? 'Select saved template...' : 'No saved templates';
+            select.appendChild(placeholder);
+
+            names.forEach((name) => {
+                const option = document.createElement('option');
+                option.value = name;
+                option.textContent = name;
+                select.appendChild(option);
+            });
+
+            if (selectedName && presets[selectedName]) {
+                select.value = selectedName;
+            }
+        }
+
+        function saveTemplatePreset() {
+            const nameInput = document.getElementById('template-name');
+            const name = nameInput ? nameInput.value.trim() : '';
+            if (!name) {
+                alert('Enter a template name first');
+                return;
+            }
+
+            const presets = getStoredTemplatePresets();
+            presets[name] = getCurrentTemplateSnapshot();
+            setStoredTemplatePresets(presets);
+
+            refreshTemplatePresetSelect(name);
+            saveTemplateSettings();
+        }
+
+        function loadTemplatePreset() {
+            const select = document.getElementById('template-preset-select');
+            const name = select ? select.value : '';
+            if (!name) {
+                alert('Select a template to load');
+                return;
+            }
+
+            const presets = getStoredTemplatePresets();
+            const selectedPreset = presets[name];
+            if (!selectedPreset) {
+                refreshTemplatePresetSelect();
+                return;
+            }
+
+            applyTemplateState(selectedPreset);
+            saveTemplateSettings();
+
+            const nameInput = document.getElementById('template-name');
+            if (nameInput) nameInput.value = name;
+        }
+
+        function deleteTemplatePreset() {
+            const select = document.getElementById('template-preset-select');
+            const name = select ? select.value : '';
+            if (!name) {
+                alert('Select a template to delete');
+                return;
+            }
+
+            const presets = getStoredTemplatePresets();
+            if (!presets[name]) {
+                refreshTemplatePresetSelect();
+                return;
+            }
+
+            delete presets[name];
+            setStoredTemplatePresets(presets);
+            refreshTemplatePresetSelect();
+        }
+
+        function ensureCsvColumns(columnsToAdd) {
+            let changed = false;
+            (columnsToAdd || []).forEach((column) => {
+                const key = String(column || '').trim();
+                if (key && !csvColumns.includes(key)) {
+                    csvColumns.push(key);
+                    changed = true;
+                }
+            });
+            return changed;
+        }
+
+        function toFiniteNumber(value, fallback) {
+            const parsed = Number.parseFloat(value);
+            return Number.isFinite(parsed) ? parsed : fallback;
+        }
+
+        function toFiniteInt(value, fallback) {
+            const parsed = Number.parseInt(value, 10);
+            return Number.isFinite(parsed) ? parsed : fallback;
+        }
+
+        function formatLocation(lat, lng) {
+            return `${lat.toFixed(7)},${lng.toFixed(7)}`;
+        }
+
+        function parseLocation(locationValue) {
+            const raw = String(locationValue || '').trim();
+            if (!raw) return null;
+            const parts = raw.split(/[;,]/).map((part) => part.trim()).filter(Boolean);
+            if (parts.length < 2) return null;
+            const lat = Number.parseFloat(parts[0]);
+            const lng = Number.parseFloat(parts[1]);
+            if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+            return { lat, lng };
+        }
+
+        function parseCSVMatrix(csvText) {
+            const text = String(csvText || '').replace(/^\uFEFF/, '');
+            const rows = [];
+            let row = [];
+            let value = '';
+            let inQuotes = false;
+
+            for (let i = 0; i < text.length; i++) {
+                const ch = text[i];
+
+                if (ch === '"') {
+                    if (inQuotes && text[i + 1] === '"') {
+                        value += '"';
+                        i += 1;
+                    } else {
+                        inQuotes = !inQuotes;
+                    }
+                    continue;
+                }
+
+                if (!inQuotes && ch === ',') {
+                    row.push(value);
+                    value = '';
+                    continue;
+                }
+
+                if (!inQuotes && (ch === '\n' || ch === '\r')) {
+                    row.push(value);
+                    value = '';
+                    if (ch === '\r' && text[i + 1] === '\n') i += 1;
+                    if (row.some((cell) => cell !== '')) rows.push(row);
+                    row = [];
+                    continue;
+                }
+
+                value += ch;
+            }
+
+            row.push(value);
+            if (row.some((cell) => cell !== '')) rows.push(row);
+            return rows;
+        }
+
+        function escapeCSVValue(value) {
+            const text = value === null || value === undefined ? '' : String(value);
+            if (/[",\n\r]/.test(text)) {
+                return `"${text.replace(/"/g, '""')}"`;
+            }
+            return text;
+        }
+
+        function rowsToCSV(headers, rows) {
+            const headerLine = headers.map(escapeCSVValue).join(',');
+            const bodyLines = rows.map((row) => headers.map((header) => escapeCSVValue(row[header])).join(','));
+            return [headerLine, ...bodyLines].join('\n');
+        }
+
+        function getObjectValueByKey(source, key) {
+            if (!source || typeof source !== 'object') return undefined;
+            if (Object.prototype.hasOwnProperty.call(source, key)) {
+                return source[key];
+            }
+            const lowered = key.toLowerCase();
+            const match = Object.keys(source).find((candidate) => candidate.toLowerCase() === lowered);
+            return match ? source[match] : undefined;
+        }
+
+        function buildPointRowData(point, sourceRow = {}) {
+            const source = sourceRow && typeof sourceRow === 'object' ? sourceRow : {};
+            ensureCsvColumns(Object.keys(source));
+            ensureCsvColumns(BASE_COLUMNS);
+
+            const row = {};
+            csvColumns.forEach((column) => {
+                const rawValue = getObjectValueByKey(source, column);
+                row[column] = rawValue !== undefined && rawValue !== null ? String(rawValue) : '';
+            });
+
+            row.street = row.street || `point_${Math.floor(point.id)}`;
+            row.label = row.label || row.street;
+            row.location = formatLocation(point.lat, point.lng);
+            row.heading = String(point.heading);
+            row.pitch = String(point.pitch);
+            row.fov = String(point.fov);
+            row.radius = String(point.radius);
+
+            if (Object.prototype.hasOwnProperty.call(row, 'bottom_crop') && !String(row.bottom_crop).trim()) {
+                row.bottom_crop = String(template.bottomCrop);
+            }
+
+            return row;
+        }
+
+        function buildExportRow(point, index) {
+            const source = point.rowData && typeof point.rowData === 'object' ? point.rowData : {};
+            const row = {};
+            csvColumns.forEach((column) => {
+                const rawValue = getObjectValueByKey(source, column);
+                row[column] = rawValue !== undefined && rawValue !== null ? String(rawValue) : '';
+            });
+
+            if (!String(row.street || '').trim()) row.street = `point_${index + 1}`;
+            if (!String(row.label || '').trim()) row.label = row.street;
+            row.location = formatLocation(point.lat, point.lng);
+            row.heading = String(point.heading);
+            row.pitch = String(point.pitch);
+            row.fov = String(point.fov);
+            row.radius = String(point.radius);
+
+            if (Object.prototype.hasOwnProperty.call(row, 'bottom_crop') && !String(row.bottom_crop).trim()) {
+                row.bottom_crop = String(template.bottomCrop);
+            }
+
+            return row;
+        }
+
+        function createSeededRandom(seed) {
+            let t = (seed >>> 0) || 1;
+            return () => {
+                t += 0x6D2B79F5;
+                let r = Math.imul(t ^ (t >>> 15), t | 1);
+                r ^= r + Math.imul(r ^ (r >>> 7), r | 61);
+                return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+            };
+        }
+
+        function parseBBoxInput(text) {
+            const parts = String(text || '').split(',').map((part) => part.trim());
+            if (parts.length !== 4) {
+                throw new Error('BBox must be min_lat,min_lng,max_lat,max_lng');
+            }
+            const [minLat, minLng, maxLat, maxLng] = parts.map((part) => Number.parseFloat(part));
+            if (![minLat, minLng, maxLat, maxLng].every(Number.isFinite)) {
+                throw new Error('BBox values must be numeric');
+            }
+            if (minLat >= maxLat || minLng >= maxLng) {
+                throw new Error('BBox min values must be smaller than max values');
+            }
+            return { minLat, minLng, maxLat, maxLng };
+        }
+
+        function getTemplateDirectionSpecs() {
+            const baseHeading = normalizeHeading(template.baseHeading);
+            const normalized = normalizeDirections(template.directions);
+            return normalized.map((entry, index) => ({
+                heading: normalizeHeading(baseHeading + index * 45),
+                pitch: Math.max(-90, Math.min(90, toFiniteInt(entry.pitch, 0))),
+                fov: Math.max(30, Math.min(120, toFiniteInt(entry.fov, 80)))
+            }));
+        }
+
+        function updateSamplerTemplateSummary() {
+            const summary = document.getElementById('sampler-template-summary');
+            if (!summary) return;
+
+            const specs = getTemplateDirectionSpecs();
+            const parts = specs.map((spec) => `H${spec.heading}/P${spec.pitch}/F${spec.fov}`);
+            summary.textContent = `Using Preview template (${specs.length} dirs): ${parts.join(' | ')}`;
+        }
+
+        function extractPolygonPoints(payload) {
+            let root = payload;
+            if (root && root.type === 'FeatureCollection') {
+                if (!Array.isArray(root.features) || !root.features.length) {
+                    throw new Error('FeatureCollection has no features');
+                }
+                root = root.features[0];
+            }
+
+            if (root && root.type === 'Feature') {
+                root = root.geometry;
+            }
+
+            if (!root || !root.type) {
+                throw new Error('Invalid GeoJSON object');
+            }
+
+            let ring = null;
+            if (root.type === 'Polygon') {
+                ring = (root.coordinates || [])[0];
+            } else if (root.type === 'MultiPolygon') {
+                ring = (((root.coordinates || [])[0] || [])[0]);
+            } else {
+                throw new Error('GeoJSON must be Polygon or MultiPolygon');
+            }
+
+            if (!Array.isArray(ring) || ring.length < 3) {
+                throw new Error('Polygon ring must have at least three points');
+            }
+
+            const first = ring[0];
+            if (!Array.isArray(first) || first.length < 2) {
+                throw new Error('Polygon coordinates are malformed');
+            }
+
+            const firstA = Number.parseFloat(first[0]);
+            const firstB = Number.parseFloat(first[1]);
+            if (!Number.isFinite(firstA) || !Number.isFinite(firstB)) {
+                throw new Error('Polygon coordinates must be numeric');
+            }
+
+            const treatAsLatLng = Math.abs(firstA) <= 90 && Math.abs(firstB) > 90;
+            return ring.map((coord) => {
+                const a = Number.parseFloat(coord[0]);
+                const b = Number.parseFloat(coord[1]);
+                if (!Number.isFinite(a) || !Number.isFinite(b)) {
+                    throw new Error('Polygon coordinates must be numeric');
+                }
+                return treatAsLatLng ? [a, b] : [b, a];
+            });
+        }
+
+        function pointInPolygon(lat, lng, polygon) {
+            if (!Array.isArray(polygon) || polygon.length < 3) return false;
+            let inside = false;
+            let j = polygon.length - 1;
+
+            for (let i = 0; i < polygon.length; i++) {
+                const latI = polygon[i][0];
+                const lngI = polygon[i][1];
+                const latJ = polygon[j][0];
+                const lngJ = polygon[j][1];
+
+                if ((lngI > lng) !== (lngJ > lng) && lngJ !== lngI) {
+                    const boundaryLat = ((latJ - latI) * (lng - lngI)) / (lngJ - lngI) + latI;
+                    if (lat < boundaryLat) inside = !inside;
+                }
+
+                j = i;
+            }
+
+            return inside;
+        }
+
+        function haversineM(lat1, lng1, lat2, lng2) {
+            const radius = 6371000;
+            const toRad = (value) => (value * Math.PI) / 180;
+            const dLat = toRad(lat2 - lat1);
+            const dLng = toRad(lng2 - lng1);
+            const a =
+                Math.sin(dLat / 2) ** 2 +
+                Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+            return 2 * radius * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        }
+
+        function sleep(ms) {
+            return new Promise((resolve) => setTimeout(resolve, ms));
+        }
+
+        async function metadataCallWithRetry(location, radius, apiKey, retries = 4, backoffMs = 500) {
+            let lastError = '';
+
+            for (let attempt = 0; attempt < retries; attempt++) {
+                try {
+                    const params = new URLSearchParams({
+                        location,
+                        radius: String(radius),
+                        key: apiKey
+                    });
+                    const response = await fetch(`https://maps.googleapis.com/maps/api/streetview/metadata?${params.toString()}`, {
+                        method: 'GET',
+                        cache: 'no-store'
+                    });
+
+                    if (!response.ok) {
+                        if (response.status >= 500) {
+                            throw new Error(`HTTP ${response.status}`);
+                        }
+                        return { status: 'failed', error: `HTTP ${response.status}` };
+                    }
+
+                    const data = await response.json();
+                    if (data.status === 'OK') {
+                        return {
+                            status: 'ok',
+                            pano_id: String(data.pano_id || ''),
+                            pano_lat: Number.parseFloat(data.location && data.location.lat),
+                            pano_lng: Number.parseFloat(data.location && data.location.lng),
+                            pano_date: String(data.date || '')
+                        };
+                    }
+
+                    return {
+                        status: 'no_imagery',
+                        api_status: String(data.status || 'UNKNOWN'),
+                        error: String(data.error_message || '')
+                    };
+                } catch (error) {
+                    lastError = error && error.message ? error.message : String(error);
+                    if (attempt < retries - 1) {
+                        await sleep(backoffMs * (2 ** attempt));
+                    }
+                }
+            }
+
+            return { status: 'failed', error: lastError || 'metadata request failed' };
+        }
+
+        function buildStreetAllocator() {
+            const taken = new Set();
+            let nextAuto = 1;
+
+            points.forEach((point) => {
+                const street = point && point.rowData ? String(getObjectValueByKey(point.rowData, 'street') || '').trim() : '';
+                if (!street) return;
+                taken.add(street);
+                const match = street.match(/^auto_(\d+)$/);
+                if (match) {
+                    nextAuto = Math.max(nextAuto, Number.parseInt(match[1], 10) + 1);
+                }
+            });
+
+            return () => {
+                while (taken.has(`auto_${nextAuto}`)) {
+                    nextAuto += 1;
+                }
+                const value = `auto_${nextAuto}`;
+                taken.add(value);
+                nextAuto += 1;
+                return value;
+            };
+        }
+
+        function updateAreaModeUI() {
+            const mode = document.getElementById('sampler-area-mode').value;
+            document.getElementById('sampler-bbox-wrap').style.display = mode === 'bbox' ? '' : 'none';
+            document.getElementById('sampler-polygon-wrap').style.display = mode === 'polygon' ? '' : 'none';
+        }
+
+        function updateSamplerStatus(lines) {
+            document.getElementById('sampler-status').textContent = Array.isArray(lines) ? lines.join('\n') : String(lines || '');
+        }
+
+        function updateBulkFetchStatus(lines) {
+            const statusEl = document.getElementById('bulk-fetch-status');
+            if (!statusEl) return;
+            statusEl.textContent = Array.isArray(lines) ? lines.join('\n') : String(lines || '');
+        }
+
+        function sanitizePathSegment(value) {
+            const normalized = String(value || '').trim() || 'point';
+            return normalized
+                .replace(/[\\/:*?"<>|]/g, '_')
+                .replace(/\s+/g, '_')
+                .replace(/_+/g, '_')
+                .replace(/^_+|_+$/g, '')
+                .slice(0, 80) || 'point';
+        }
+
+        function generateImageId(location, heading, pitch, fov) {
+            const input = `${location}_${heading}_${pitch}_${fov}`;
+            let hashA = 2166136261;
+            let hashB = 2166136261;
+            for (let i = 0; i < input.length; i++) {
+                const code = input.charCodeAt(i);
+                hashA ^= code;
+                hashA = Math.imul(hashA, 16777619);
+
+                hashB ^= (code + i);
+                hashB = Math.imul(hashB, 2246822519);
+            }
+            const hexA = (hashA >>> 0).toString(16).padStart(8, '0');
+            const hexB = (hashB >>> 0).toString(16).padStart(8, '0');
+            return `${hexA}${hexB}`.slice(0, 12);
+        }
+
+        function resolvePointInputLocation(point) {
+            const rowLocation = point && point.rowData ? getObjectValueByKey(point.rowData, 'location') : '';
+            const parsed = parseLocation(rowLocation);
+            if (parsed) return formatLocation(parsed.lat, parsed.lng);
+            return formatLocation(point.lat, point.lng);
+        }
+
+        function resolvePointStreet(point, index) {
+            const label = point && point.rowData ? String(getObjectValueByKey(point.rowData, 'label') || '').trim() : '';
+            const street = point && point.rowData ? String(getObjectValueByKey(point.rowData, 'street') || '').trim() : '';
+            return label || street || `point_${index + 1}`;
+        }
+
+        function buildImageManifestRow(target, metadata, status, filePath) {
+            return {
+                image_id: target.imageId,
+                file_path: filePath || '',
+                split: 'unset',
+                parent_image_id: '',
+                is_synthetic: '0',
+                edit_type: 'none',
+                expected_inserted_class: 'none',
+                street: target.street,
+                input_location: target.location,
+                heading: String(target.heading),
+                pitch: String(target.pitch),
+                fov: String(target.fov),
+                pano_id: metadata && metadata.pano_id ? String(metadata.pano_id) : '',
+                pano_lat: metadata && Number.isFinite(metadata.pano_lat) ? String(metadata.pano_lat) : '',
+                pano_lng: metadata && Number.isFinite(metadata.pano_lng) ? String(metadata.pano_lng) : '',
+                status,
+                num_boxes_autogen: '0',
+                needs_review: '0',
+                review_status: 'todo',
+                created_at: new Date().toISOString()
+            };
+        }
+
+        async function fetchStreetViewImageBlob(target, apiKey, imageSize, retries = 3, backoffMs = 700) {
+            let lastError = '';
+
+            for (let attempt = 0; attempt < retries; attempt++) {
+                try {
+                    const params = new URLSearchParams({
+                        location: target.location,
+                        heading: String(target.heading),
+                        pitch: String(target.pitch),
+                        fov: String(target.fov),
+                        radius: String(target.radius),
+                        key: apiKey,
+                        return_error_code: 'true',
+                        size: `${imageSize}x${imageSize}`,
+                        format: 'jpg'
+                    });
+
+                    trackApiCall();
+                    const response = await fetch(`https://maps.googleapis.com/maps/api/streetview?${params.toString()}`, {
+                        method: 'GET',
+                        cache: 'no-store'
+                    });
+
+                    if (!response.ok) {
+                        if (response.status >= 500) {
+                            throw new Error(`HTTP ${response.status}`);
+                        }
+                        return { ok: false, error: `HTTP ${response.status}` };
+                    }
+
+                    const contentType = String(response.headers.get('Content-Type') || '').toLowerCase();
+                    if (!contentType.includes('image')) {
+                        const bodyText = await response.text();
+                        return {
+                            ok: false,
+                            error: `Non-image response (${contentType || 'unknown'}): ${bodyText.slice(0, 120)}`
+                        };
+                    }
+
+                    const blob = await response.blob();
+                    return { ok: true, blob };
+                } catch (error) {
+                    lastError = error && error.message ? error.message : String(error);
+                    if (attempt < retries - 1) {
+                        await sleep(backoffMs * (2 ** attempt));
+                    }
+                }
+            }
+
+            return { ok: false, error: lastError || 'Image request failed' };
+        }
+
+        function downloadBlob(blob, filename) {
+            const url = URL.createObjectURL(blob);
+            const anchor = document.createElement('a');
+            anchor.href = url;
+            anchor.download = filename;
+            document.body.appendChild(anchor);
+            anchor.click();
+            document.body.removeChild(anchor);
+            URL.revokeObjectURL(url);
+        }
+
+        async function fetchStreetViewBatch() {
+            if (isBulkFetching) return;
+
+            const runBtn = document.getElementById('bulk-fetch-btn');
+
+            try {
+                isBulkFetching = true;
+                runBtn.disabled = true;
+                runBtn.textContent = 'Fetching...';
+
+                if (!window.JSZip) {
+                    throw new Error('JSZip failed to load. Refresh and try again.');
+                }
+
+                const scope = document.getElementById('bulk-fetch-scope').value;
+                const imageSize = Math.max(128, Math.min(2048, toFiniteInt(document.getElementById('bulk-fetch-size').value, 640)));
+                const apiKey = (document.getElementById('sampler-api-key').value || '').trim() || GSV_API_KEY;
+                if (!apiKey) {
+                    throw new Error('No API key available. Set API Key Override or GSV_API_KEY in page config.');
+                }
+
+                const sourcePoints = scope === 'selected'
+                    ? points.filter((point) => selectedIds.has(point.id))
+                    : [...points];
+
+                if (!sourcePoints.length) {
+                    throw new Error(scope === 'selected' ? 'No selected points to fetch.' : 'No points available to fetch.');
+                }
+
+                const targets = [];
+                const seenIds = new Set();
+
+                sourcePoints.forEach((point, idx) => {
+                    const location = resolvePointInputLocation(point);
+                    const heading = normalizeHeading(point.heading);
+                    const pitch = Math.max(-90, Math.min(90, toFiniteInt(point.pitch, 0)));
+                    const fov = Math.max(30, Math.min(120, toFiniteInt(point.fov, 80)));
+                    const radius = Math.max(1, toFiniteInt(point.radius, 50));
+                    const street = resolvePointStreet(point, idx);
+                    const imageId = generateImageId(location, heading, pitch, fov);
+
+                    if (seenIds.has(imageId)) return;
+                    seenIds.add(imageId);
+
+                    targets.push({
+                        imageId,
+                        street,
+                        safeStreet: sanitizePathSegment(street),
+                        location,
+                        heading,
+                        pitch,
+                        fov,
+                        radius
+                    });
+                });
+
+                const zip = new JSZip();
+                const manifestRows = [];
+
+                let okCount = 0;
+                let noImageryCount = 0;
+                let failedCount = 0;
+
+                updateBulkFetchStatus([
+                    `scope=${scope}`,
+                    `targets=${targets.length}`,
+                    `image_size=${imageSize}`,
+                    'starting...'
+                ]);
+
+                for (let i = 0; i < targets.length; i++) {
+                    const target = targets[i];
+                    updateBulkFetchStatus([
+                        `scope=${scope}`,
+                        `progress=${i + 1}/${targets.length}`,
+                        `ok=${okCount}`,
+                        `no_imagery=${noImageryCount}`,
+                        `failed=${failedCount}`,
+                        `image_id=${target.imageId}`
+                    ]);
+
+                    const metadata = await metadataCallWithRetry(target.location, target.radius, apiKey);
+
+                    if (metadata.status !== 'ok') {
+                        const status = metadata.status === 'no_imagery' ? 'no_imagery' : 'failed';
+                        if (status === 'no_imagery') noImageryCount += 1;
+                        else failedCount += 1;
+
+                        manifestRows.push(buildImageManifestRow(target, metadata, status, ''));
+                        continue;
+                    }
+
+                    const imageResp = await fetchStreetViewImageBlob(target, apiKey, imageSize);
+                    if (!imageResp.ok) {
+                        failedCount += 1;
+                        manifestRows.push(buildImageManifestRow(target, metadata, 'failed', ''));
+                        continue;
+                    }
+
+                    const relativePath = `data/images_original/${target.safeStreet}/${target.imageId}.jpg`;
+                    zip.file(relativePath, imageResp.blob);
+                    manifestRows.push(buildImageManifestRow(target, metadata, 'ok', relativePath));
+                    okCount += 1;
+                }
+
+                zip.file('manifests/images.csv', rowsToCSV(IMAGE_MANIFEST_COLUMNS, manifestRows));
+                zip.file('README_FETCH.txt', [
+                    'Street View batch export from Point Manager',
+                    `Generated at: ${new Date().toISOString()}`,
+                    `Targets: ${targets.length}`,
+                    `OK images: ${okCount}`,
+                    `No imagery: ${noImageryCount}`,
+                    `Failed: ${failedCount}`,
+                    '',
+                    'Extract this ZIP into the project root to populate data/images_original and manifests/images.csv.'
+                ].join('\n'));
+
+                updateBulkFetchStatus('Packing ZIP...');
+                const zipBlob = await zip.generateAsync({ type: 'blob' });
+
+                const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+                downloadBlob(zipBlob, `streetview_fetch_${stamp}.zip`);
+
+                updateBulkFetchStatus([
+                    `completed targets=${targets.length}`,
+                    `ok=${okCount}`,
+                    `no_imagery=${noImageryCount}`,
+                    `failed=${failedCount}`,
+                    'ZIP downloaded to your browser Downloads folder.'
+                ]);
+            } catch (error) {
+                updateBulkFetchStatus(`Fetch failed: ${error && error.message ? error.message : String(error)}`);
+            } finally {
+                isBulkFetching = false;
+                runBtn.disabled = false;
+                runBtn.textContent = 'Fetch & Download ZIP';
+            }
+        }
+
+        function clearDryRunPreview() {
+            const preview = document.getElementById('sampler-dryrun-preview');
+            if (preview) {
+                preview.style.display = 'none';
+                preview.innerHTML = '';
+            }
+
+            if (samplerDryRunPreviewLayer && map) {
+                map.removeLayer(samplerDryRunPreviewLayer);
+            }
+            samplerDryRunPreviewLayer = null;
+        }
+
+        function renderDryRunPreview(candidates, directionCount) {
+            const preview = document.getElementById('sampler-dryrun-preview');
+            if (!preview) return;
+
+            if (samplerDryRunPreviewLayer && map) {
+                map.removeLayer(samplerDryRunPreviewLayer);
+            }
+            samplerDryRunPreviewLayer = null;
+
+            if (!Array.isArray(candidates) || candidates.length === 0) {
+                preview.style.display = 'none';
+                preview.innerHTML = '';
+                return;
+            }
+
+            const maxRows = 8;
+            const rows = candidates.slice(0, maxRows).map((entry, index) =>
+                `<div>#${index + 1} ${entry.lat.toFixed(5)}, ${entry.lng.toFixed(5)}</div>`
+            );
+            if (candidates.length > maxRows) {
+                rows.push(`<div>+${candidates.length - maxRows} more</div>`);
+            }
+
+            preview.innerHTML = `
+                <div class="title">Dry run candidates: ${candidates.length} panos (${candidates.length * directionCount} rows)</div>
+                <div class="list">${rows.join('')}</div>
+            `;
+            preview.style.display = 'block';
+
+            if (map) {
+                const markers = candidates.map((entry) => L.circleMarker([entry.lat, entry.lng], {
+                    radius: 4,
+                    color: '#67e8f9',
+                    weight: 1,
+                    fillColor: '#67e8f9',
+                    fillOpacity: 0.18,
+                    opacity: 0.9,
+                    interactive: false
+                }));
+                samplerDryRunPreviewLayer = L.layerGroup(markers).addTo(map);
+            }
+        }
+
+        function clearSamplerDraftLayers() {
+            if (samplerDraftLayer && map) {
+                map.removeLayer(samplerDraftLayer);
+            }
+            samplerDraftLayer = null;
+
+            samplerDraftVertices.forEach((layer) => {
+                if (map) map.removeLayer(layer);
+            });
+            samplerDraftVertices = [];
+            samplerDrawFirstCorner = null;
+            samplerDraftLatLngs = [];
+        }
+
+        function setSamplerAreaLayer(layer) {
+            if (samplerAreaLayer && map) {
+                map.removeLayer(samplerAreaLayer);
+            }
+            samplerAreaLayer = null;
+            if (layer && map) {
+                samplerAreaLayer = layer;
+                samplerAreaLayer.addTo(map);
+            }
+        }
+
+        function setBBoxInputFromBounds(bounds) {
+            const minLat = bounds.getSouth();
+            const minLng = bounds.getWest();
+            const maxLat = bounds.getNorth();
+            const maxLng = bounds.getEast();
+            document.getElementById('sampler-bbox').value = `${minLat.toFixed(6)},${minLng.toFixed(6)},${maxLat.toFixed(6)},${maxLng.toFixed(6)}`;
+            document.getElementById('sampler-area-mode').value = 'bbox';
+            updateAreaModeUI();
+        }
+
+        function setPolygonInputFromLatLngs(latLngs) {
+            const closed = [...latLngs, latLngs[0]];
+            const coordinates = closed.map((latlng) => [
+                Number.parseFloat(latlng.lng.toFixed(6)),
+                Number.parseFloat(latlng.lat.toFixed(6))
+            ]);
+            const geojson = {
+                type: 'Polygon',
+                coordinates: [coordinates]
+            };
+            document.getElementById('sampler-polygon').value = JSON.stringify(geojson);
+            document.getElementById('sampler-area-mode').value = 'polygon';
+            updateAreaModeUI();
+            clearSamplerSegmentation();
+        }
+
+        function useCurrentViewAsBBox() {
+            if (!map) return;
+            const bounds = map.getBounds();
+            setBBoxInputFromBounds(bounds);
+            setSamplerAreaLayer(L.rectangle(bounds, {
+                color: '#ff6b35',
+                weight: 2,
+                fillOpacity: 0.08
+            }));
+            samplerDrawMode = null;
+            clearSamplerDraftLayers();
+            clearSamplerSegmentation();
+            updateSamplerStatus('BBox set from current map view.');
+        }
+
+        function useCurrentViewAsPolygon() {
+            if (!map) return;
+            const bounds = map.getBounds();
+            const latLngs = [
+                L.latLng(bounds.getSouth(), bounds.getWest()),
+                L.latLng(bounds.getSouth(), bounds.getEast()),
+                L.latLng(bounds.getNorth(), bounds.getEast()),
+                L.latLng(bounds.getNorth(), bounds.getWest())
+            ];
+            setPolygonInputFromLatLngs(latLngs);
+            setSamplerAreaLayer(L.polygon(latLngs, {
+                color: '#ff6b35',
+                weight: 2,
+                fillOpacity: 0.08
+            }));
+            samplerDrawMode = null;
+            clearSamplerDraftLayers();
+            clearSamplerSegmentation();
+            updateSamplerStatus('Polygon set from current map view.');
+        }
+
+        function startBBoxDrawOnMap() {
+            if (!map) return;
+            samplerDrawMode = 'bbox';
+            clearSamplerDraftLayers();
+            clearSamplerSegmentation();
+            updateSamplerStatus('BBox draw mode: click first corner, then click opposite corner.');
+        }
+
+        function startPolygonDrawOnMap() {
+            if (!map) return;
+            samplerDrawMode = 'polygon';
+            clearSamplerDraftLayers();
+            clearSamplerSegmentation();
+            updateSamplerStatus('Polygon draw mode: click points on map, then click Finish.');
+        }
+
+        function finishPolygonDrawOnMap() {
+            if (!map) return;
+            if (samplerDraftLatLngs.length < 3) {
+                alert('Add at least three polygon points first.');
+                return;
+            }
+
+            setPolygonInputFromLatLngs(samplerDraftLatLngs);
+            setSamplerAreaLayer(L.polygon(samplerDraftLatLngs, {
+                color: '#ff6b35',
+                weight: 2,
+                fillOpacity: 0.08
+            }));
+            samplerDrawMode = null;
+            clearSamplerDraftLayers();
+            clearSamplerSegmentation();
+            updateSamplerStatus('Polygon captured from map.');
+        }
+
+        function clearSamplerAreaOverlay() {
+            samplerDrawMode = null;
+            clearSamplerDraftLayers();
+            if (samplerAreaLayer && map) {
+                map.removeLayer(samplerAreaLayer);
+            }
+            samplerAreaLayer = null;
+            clearSamplerSegmentation();
+            updateSamplerStatus('Area overlay cleared.');
+        }
+
+        function updateSamplerSegmentCount() {
+            const countEl = document.getElementById('sampler-segment-count');
+            if (!countEl) return;
+            countEl.textContent = `Segments: ${samplerSegmentBoxes.length}`;
+        }
+
+        function clearSamplerSegmentation() {
+            samplerSegmentBoxes = [];
+            if (samplerSegmentationLayer && map) {
+                map.removeLayer(samplerSegmentationLayer);
+            }
+            samplerSegmentationLayer = null;
+            updateSamplerSegmentCount();
+        }
+
+        function segmentPolygonIntoBoxes(polygon, boxSizeM) {
+            if (!Array.isArray(polygon) || polygon.length < 3) return [];
+
+            const latValues = polygon.map((point) => point[0]);
+            const lngValues = polygon.map((point) => point[1]);
+            const minLat = Math.min(...latValues);
+            const maxLat = Math.max(...latValues);
+            const minLng = Math.min(...lngValues);
+            const maxLng = Math.max(...lngValues);
+
+            const meanLat = (minLat + maxLat) / 2;
+            const metersPerDegLat = 111320;
+            const metersPerDegLng = Math.max(1, metersPerDegLat * Math.cos((meanLat * Math.PI) / 180));
+            const latStep = boxSizeM / metersPerDegLat;
+            const lngStep = boxSizeM / metersPerDegLng;
+
+            if (!Number.isFinite(latStep) || !Number.isFinite(lngStep) || latStep <= 0 || lngStep <= 0) {
+                return [];
+            }
+
+            const segments = [];
+
+            for (let lat = minLat; lat < maxLat; lat += latStep) {
+                const nextLat = Math.min(lat + latStep, maxLat);
+                const rowBoxes = [];
+
+                for (let lng = minLng; lng < maxLng; lng += lngStep) {
+                    const nextLng = Math.min(lng + lngStep, maxLng);
+                    const centerLat = (lat + nextLat) / 2;
+                    const centerLng = (lng + nextLng) / 2;
+
+                    if (!pointInPolygon(centerLat, centerLng, polygon)) continue;
+
+                    rowBoxes.push({
+                        minLat: lat,
+                        minLng: lng,
+                        maxLat: nextLat,
+                        maxLng: nextLng
+                    });
+                }
+
+                if (!rowBoxes.length) continue;
+
+                rowBoxes.sort((a, b) => a.minLng - b.minLng);
+                let merged = { ...rowBoxes[0] };
+                for (let i = 1; i < rowBoxes.length; i++) {
+                    const current = rowBoxes[i];
+                    if (current.minLng <= merged.maxLng + 1e-12) {
+                        merged.maxLng = Math.max(merged.maxLng, current.maxLng);
+                    } else {
+                        segments.push(merged);
+                        merged = { ...current };
+                    }
+                }
+                segments.push(merged);
+            }
+
+            return segments;
+        }
+
+        function renderSamplerSegmentation(boxes) {
+            if (!map) return;
+            if (samplerSegmentationLayer) {
+                map.removeLayer(samplerSegmentationLayer);
+                samplerSegmentationLayer = null;
+            }
+            if (!boxes.length) return;
+
+            const layers = boxes.map((box) => L.rectangle([
+                [box.minLat, box.minLng],
+                [box.maxLat, box.maxLng]
+            ], {
+                color: '#4ade80',
+                weight: 1,
+                fillOpacity: 0.06,
+                interactive: false
+            }));
+            samplerSegmentationLayer = L.layerGroup(layers).addTo(map);
+        }
+
+        function buildPolygonSegmentsFromUI() {
+            try {
+                const polygonText = document.getElementById('sampler-polygon').value;
+                const parsed = JSON.parse(polygonText || '{}');
+                const polygon = extractPolygonPoints(parsed);
+                const boxSizeM = Math.max(5, toFiniteNumber(document.getElementById('sampler-segment-size').value, 80));
+                const boxes = segmentPolygonIntoBoxes(polygon, boxSizeM);
+
+                samplerSegmentBoxes = boxes;
+                renderSamplerSegmentation(boxes);
+                updateSamplerSegmentCount();
+                document.getElementById('sampler-segment-enabled').checked = true;
+                updateSamplerStatus(`Built ${boxes.length} segment boxes from irregular shape.`);
+            } catch (error) {
+                clearSamplerSegmentation();
+                updateSamplerStatus(`Segmentation failed: ${error && error.message ? error.message : String(error)}`);
+            }
+        }
+
+        function samplePointFromSegmentBoxes(randomFn, boxes) {
+            if (!boxes.length) return null;
+
+            let totalArea = 0;
+            boxes.forEach((box) => {
+                totalArea += (box.maxLat - box.minLat) * (box.maxLng - box.minLng);
+            });
+            if (!Number.isFinite(totalArea) || totalArea <= 0) return null;
+
+            let pick = randomFn() * totalArea;
+            for (let i = 0; i < boxes.length; i++) {
+                const box = boxes[i];
+                const area = (box.maxLat - box.minLat) * (box.maxLng - box.minLng);
+                if (pick <= area || i === boxes.length - 1) {
+                    return {
+                        lat: box.minLat + randomFn() * (box.maxLat - box.minLat),
+                        lng: box.minLng + randomFn() * (box.maxLng - box.minLng)
+                    };
+                }
+                pick -= area;
+            }
+
+            return null;
+        }
+
+        function handleSamplerMapClick(latlng) {
+            if (!samplerDrawMode || !map) return false;
+
+            if (samplerDrawMode === 'bbox') {
+                if (!samplerDrawFirstCorner) {
+                    samplerDrawFirstCorner = latlng;
+                    clearSamplerDraftLayers();
+                    samplerDrawFirstCorner = latlng;
+                    samplerDraftLayer = L.circleMarker(latlng, {
+                        radius: 5,
+                        color: '#ff6b35',
+                        fillColor: '#ff6b35',
+                        fillOpacity: 0.8,
+                        weight: 1
+                    }).addTo(map);
+                    updateSamplerStatus('Select opposite corner to complete bbox.');
+                } else {
+                    const bounds = L.latLngBounds(samplerDrawFirstCorner, latlng);
+                    setBBoxInputFromBounds(bounds);
+                    setSamplerAreaLayer(L.rectangle(bounds, {
+                        color: '#ff6b35',
+                        weight: 2,
+                        fillOpacity: 0.08
+                    }));
+                    samplerDrawMode = null;
+                    clearSamplerDraftLayers();
+                    updateSamplerStatus('BBox captured from map.');
+                }
+                return true;
+            }
+
+            if (samplerDrawMode === 'polygon') {
+                samplerDraftLatLngs.push(latlng);
+                const vertex = L.circleMarker(latlng, {
+                    radius: 4,
+                    color: '#ff6b35',
+                    fillColor: '#ff6b35',
+                    fillOpacity: 0.8,
+                    weight: 1
+                }).addTo(map);
+                samplerDraftVertices.push(vertex);
+
+                if (samplerDraftLayer) {
+                    map.removeLayer(samplerDraftLayer);
+                }
+                if (samplerDraftLatLngs.length >= 2) {
+                    samplerDraftLayer = L.polyline(samplerDraftLatLngs, {
+                        color: '#ff6b35',
+                        weight: 2,
+                        dashArray: '4,4'
+                    }).addTo(map);
+                }
+
+                updateSamplerStatus(`Polygon vertices: ${samplerDraftLatLngs.length}. Click Finish when done.`);
+                return true;
+            }
+
+            return false;
+        }
+
+        function samplePointInArea(randomFn, bounds, polygon) {
+            if (!polygon) {
+                return {
+                    lat: bounds.minLat + randomFn() * (bounds.maxLat - bounds.minLat),
+                    lng: bounds.minLng + randomFn() * (bounds.maxLng - bounds.minLng)
+                };
+            }
+
+            for (let i = 0; i < 250; i++) {
+                const lat = bounds.minLat + randomFn() * (bounds.maxLat - bounds.minLat);
+                const lng = bounds.minLng + randomFn() * (bounds.maxLng - bounds.minLng);
+                if (pointInPolygon(lat, lng, polygon)) {
+                    return { lat, lng };
+                }
+            }
+
+            return null;
+        }
+
+        async function appendByAreaSampling() {
+            if (isSampling) return;
+
+            const runButton = document.getElementById('sampler-run-btn');
+            const mode = document.getElementById('sampler-area-mode').value;
+            const bboxText = document.getElementById('sampler-bbox').value;
+            const polygonText = document.getElementById('sampler-polygon').value;
+            let dryRunCandidates = [];
+            let directionCount = 8;
+
+            try {
+                isSampling = true;
+                runButton.disabled = true;
+                runButton.textContent = 'Sampling...';
+                clearDryRunPreview();
+
+                const targetPanos = Math.max(0, toFiniteInt(document.getElementById('sampler-target').value, 200));
+                const radius = Math.max(1, toFiniteInt(document.getElementById('sampler-radius').value, 50));
+                const minSpacingRaw = toFiniteNumber(document.getElementById('sampler-spacing').value, 0);
+                const minSpacingM = minSpacingRaw > 0 ? minSpacingRaw : null;
+                const seed = toFiniteInt(document.getElementById('sampler-seed').value, 123);
+                const maxAttempts = Math.max(1, toFiniteInt(document.getElementById('sampler-attempts').value, 10000));
+                const directionSpecs = getTemplateDirectionSpecs();
+                directionCount = directionSpecs.length;
+                const labelPrefix = (document.getElementById('sampler-label-prefix').value || 'auto').trim() || 'auto';
+                const dryRun = document.getElementById('sampler-dry-run').checked;
+                const useSegments = mode === 'polygon' && document.getElementById('sampler-segment-enabled').checked;
+                const segmentSizeM = Math.max(5, toFiniteNumber(document.getElementById('sampler-segment-size').value, 80));
+                const apiKey = (document.getElementById('sampler-api-key').value || '').trim() || GSV_API_KEY;
+
+                if (!apiKey) {
+                    throw new Error('No API key available for metadata requests');
+                }
+
+                let polygon = null;
+                let bounds = null;
+
+                if (mode === 'bbox') {
+                    bounds = parseBBoxInput(bboxText);
+                    clearSamplerSegmentation();
+                } else {
+                    const parsed = JSON.parse(polygonText || '{}');
+                    polygon = extractPolygonPoints(parsed);
+                    const latValues = polygon.map((p) => p[0]);
+                    const lngValues = polygon.map((p) => p[1]);
+                    bounds = {
+                        minLat: Math.min(...latValues),
+                        minLng: Math.min(...lngValues),
+                        maxLat: Math.max(...latValues),
+                        maxLng: Math.max(...lngValues)
+                    };
+
+                    if (useSegments) {
+                        samplerSegmentBoxes = segmentPolygonIntoBoxes(polygon, segmentSizeM);
+                        if (!samplerSegmentBoxes.length) {
+                            throw new Error('Could not build segment boxes from polygon. Try a larger shape or smaller box size.');
+                        }
+                        renderSamplerSegmentation(samplerSegmentBoxes);
+                        updateSamplerSegmentCount();
+                    } else {
+                        clearSamplerSegmentation();
+                    }
+                }
+
+                ensureCsvColumns(BASE_COLUMNS);
+                ensureCsvColumns(ENRICHMENT_COLUMNS);
+
+                const bottomCropInput = (document.getElementById('sampler-bottom-crop').value || '').trim();
+                const bottomCropValue = bottomCropInput && Number.isFinite(Number.parseFloat(bottomCropInput))
+                    ? bottomCropInput
+                    : String(template.bottomCrop);
+
+                const existingPanoIds = new Set(
+                    points
+                        .map((point) => (point && point.rowData ? String(getObjectValueByKey(point.rowData, 'pano_id') || '').trim() : ''))
+                        .filter(Boolean)
+                );
+
+                const spacingRefs = [];
+                if (minSpacingM !== null) {
+                    const seenPanos = new Set();
+                    points.forEach((point) => {
+                        if (!point || !point.rowData) return;
+                        const panoId = String(getObjectValueByKey(point.rowData, 'pano_id') || '').trim();
+                        if (!panoId || seenPanos.has(panoId)) return;
+                        const panoLat = Number.parseFloat(getObjectValueByKey(point.rowData, 'pano_lat'));
+                        const panoLng = Number.parseFloat(getObjectValueByKey(point.rowData, 'pano_lng'));
+                        if (!Number.isFinite(panoLat) || !Number.isFinite(panoLng)) return;
+                        spacingRefs.push([panoLat, panoLng]);
+                        seenPanos.add(panoId);
+                    });
+                }
+
+                const randomFn = createSeededRandom(seed);
+                const allocateStreet = buildStreetAllocator();
+                const acceptedThisRun = new Set();
+
+                const stats = {
+                    attempted: 0,
+                    acceptedPanos: 0,
+                    duplicates: 0,
+                    noImagery: 0,
+                    outOfArea: 0,
+                    tooClose: 0,
+                    failed: 0
+                };
+
+                updateSamplerStatus(['Sampling started...']);
+
+                while (stats.acceptedPanos < targetPanos && stats.attempted < maxAttempts) {
+                    stats.attempted += 1;
+                    const sampled = useSegments
+                        ? samplePointFromSegmentBoxes(randomFn, samplerSegmentBoxes)
+                        : samplePointInArea(randomFn, bounds, polygon);
+                    if (!sampled) {
+                        stats.failed += 1;
+                        continue;
+                    }
+
+                    const sampleLocation = formatLocation(sampled.lat, sampled.lng);
+                    const metadata = await metadataCallWithRetry(sampleLocation, radius, apiKey);
+
+                    if (metadata.status === 'failed') {
+                        stats.failed += 1;
+                        continue;
+                    }
+
+                    if (metadata.status !== 'ok') {
+                        stats.noImagery += 1;
+                        continue;
+                    }
+
+                    const panoId = String(metadata.pano_id || '').trim();
+                    const panoLat = Number.parseFloat(metadata.pano_lat);
+                    const panoLng = Number.parseFloat(metadata.pano_lng);
+
+                    if (!panoId || !Number.isFinite(panoLat) || !Number.isFinite(panoLng)) {
+                        stats.failed += 1;
+                        continue;
+                    }
+
+                    if (existingPanoIds.has(panoId) || acceptedThisRun.has(panoId)) {
+                        stats.duplicates += 1;
+                        continue;
+                    }
+
+                    const isInsideArea = polygon
+                        ? pointInPolygon(panoLat, panoLng, polygon)
+                        : (panoLat >= bounds.minLat && panoLat <= bounds.maxLat && panoLng >= bounds.minLng && panoLng <= bounds.maxLng);
+
+                    if (!isInsideArea) {
+                        stats.outOfArea += 1;
+                        continue;
+                    }
+
+                    if (minSpacingM !== null) {
+                        let tooClose = false;
+                        for (let i = 0; i < spacingRefs.length; i++) {
+                            const ref = spacingRefs[i];
+                            if (haversineM(panoLat, panoLng, ref[0], ref[1]) < minSpacingM) {
+                                tooClose = true;
+                                break;
+                            }
+                        }
+                        if (tooClose) {
+                            stats.tooClose += 1;
+                            continue;
+                        }
+                    }
+
+                    acceptedThisRun.add(panoId);
+                    existingPanoIds.add(panoId);
+                    if (minSpacingM !== null) {
+                        spacingRefs.push([panoLat, panoLng]);
+                    }
+
+                    if (dryRun) {
+                        dryRunCandidates.push({ panoId, lat: panoLat, lng: panoLng });
+                    }
+
+                    stats.acceptedPanos += 1;
+
+                    const createdAt = new Date().toISOString();
+                    const safePano = panoId.replace(/[^A-Za-z0-9_-]/g, '_');
+                    const snappedLocation = formatLocation(panoLat, panoLng);
+
+                    directionSpecs.forEach((directionSpec) => {
+                        const headingValue = directionSpec.heading;
+                        const row = {
+                            street: allocateStreet(),
+                            label: `${labelPrefix}_${safePano}_h${headingValue}`,
+                            location: snappedLocation,
+                            heading: String(headingValue),
+                            pitch: String(directionSpec.pitch),
+                            fov: String(directionSpec.fov),
+                            radius: String(radius),
+                            bottom_crop: bottomCropValue,
+                            source: 'auto_sampler',
+                            sample_location: sampleLocation,
+                            pano_id: panoId,
+                            pano_lat: String(panoLat),
+                            pano_lng: String(panoLng),
+                            pano_date: String(metadata.pano_date || ''),
+                            status: 'ok',
+                            group_id: panoId,
+                            created_at: createdAt
+                        };
+
+                        if (!dryRun) {
+                            addPoint(panoLat, panoLng, headingValue, directionSpec.pitch, directionSpec.fov, radius, row, true);
+                        }
+                    });
+
+                    if (stats.attempted % 10 === 0 || stats.acceptedPanos === targetPanos) {
+                        updateSamplerStatus([
+                            `attempted=${stats.attempted}`,
+                            `accepted_panos=${stats.acceptedPanos}`,
+                            `duplicates=${stats.duplicates}`,
+                            `no_imagery=${stats.noImagery}`,
+                            `out_of_area=${stats.outOfArea}`,
+                            `too_close=${stats.tooClose}`,
+                            `failed=${stats.failed}`,
+                            `dry_run=${dryRun}`,
+                            `segments=${useSegments ? samplerSegmentBoxes.length : 0}`,
+                            `new_rows=${stats.acceptedPanos * directionSpecs.length}`
+                        ]);
+                    }
+                }
+
+                if (!dryRun) {
+                    updateUI();
+                }
+
+                if (dryRun) {
+                    renderDryRunPreview(dryRunCandidates, directionCount);
+                } else {
+                    clearDryRunPreview();
+                }
+
+                if (!dryRun && points.length > 0) {
+                    const boundsObj = L.latLngBounds(points.map((point) => [point.lat, point.lng]));
+                    map.fitBounds(boundsObj, { padding: [50, 50] });
+                }
+
+                updateSamplerStatus([
+                    `attempted=${stats.attempted}`,
+                    `accepted_panos=${stats.acceptedPanos}`,
+                    `duplicates=${stats.duplicates}`,
+                    `no_imagery=${stats.noImagery}`,
+                    `out_of_area=${stats.outOfArea}`,
+                    `too_close=${stats.tooClose}`,
+                    `failed=${stats.failed}`,
+                    `dry_run=${dryRun}`,
+                    `segments=${useSegments ? samplerSegmentBoxes.length : 0}`,
+                    `new_rows=${stats.acceptedPanos * directionSpecs.length}`
+                ]);
+            } catch (error) {
+                updateSamplerStatus(`Sampling failed: ${error && error.message ? error.message : String(error)}`);
+            } finally {
+                isSampling = false;
+                runButton.disabled = false;
+                runButton.textContent = 'Append New Panos';
+            }
+        }
+        
+        // API Counter functions
+        function initApiCounter() {
+            const today = new Date().toISOString().split('T')[0];
+            let stored = {};
+            try {
+                stored = JSON.parse(localStorage.getItem('gsv_api_counter')) || {};
+            } catch (e) {
+                stored = {};
+            }
+            
+            // Reset today if it's a new day
+            if (stored.date !== today) {
+                stored.today = 0;
+                stored.date = today;
+            }
+            
+            // Initialize session counter
+            window.apiCounterSession = 0;
+            
+            // Load cumulative and today (handle case where values are 0)
+            window.apiCounterCumulative = (stored.cumulative !== undefined) ? stored.cumulative : 0;
+            window.apiCounterToday = (stored.today !== undefined) ? stored.today : 0;
+            
+            updateApiCounterDisplay();
+        }
+        
+        function trackApiCall() {
+            const today = new Date().toISOString().split('T')[0];
+            const stored = JSON.parse(localStorage.getItem('gsv_api_counter') || '{}');
+            
+            // Reset today if it's a new day
+            if (stored.date !== today) {
+                stored.today = 0;
+                stored.date = today;
+            }
+            
+            window.apiCounterSession++;
+            window.apiCounterToday++;
+            window.apiCounterCumulative++;
+            
+            stored.today = window.apiCounterToday;
+            stored.cumulative = window.apiCounterCumulative;
+            stored.date = today;
+            
+            localStorage.setItem('gsv_api_counter', JSON.stringify(stored));
+            updateApiCounterDisplay();
+        }
+        
+        function updateApiCounterDisplay() {
+            document.getElementById('counter-session').textContent = window.apiCounterSession;
+            document.getElementById('counter-today').textContent = window.apiCounterToday;
+            document.getElementById('counter-cumulative').textContent = window.apiCounterCumulative;
+        }
+        
+        function initMap() {
+            map = L.map('map', { 
+                zoomControl: true,
+                attributionControl: false 
+            }).setView([45.4206, -75.6786], 14);
+            
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19
+            }).addTo(map);
+            
+            // Box selection with Ctrl
+            let boxStart = null;
+            const selectionBox = document.createElement('div');
+            selectionBox.className = 'selection-box';
+            selectionBox.style.cssText = 'position:absolute;border:2px solid var(--accent);background:var(--accent-dim);pointer-events:none;z-index:1000;display:none';
+            document.getElementById('map').appendChild(selectionBox);
+            
+            map.on('mousedown', (e) => {
+                if (e.originalEvent.ctrlKey || e.originalEvent.metaKey) {
+                    boxStart = e.containerPoint;
+                    selectionBox.style.left = e.containerPoint.x + 'px';
+                    selectionBox.style.top = e.containerPoint.y + 'px';
+                    selectionBox.style.width = '0';
+                    selectionBox.style.height = '0';
+                    selectionBox.style.display = 'block';
+                }
+            });
+            
+            map.on('mousemove', (e) => {
+                if (boxStart) {
+                    const x = Math.min(boxStart.x, e.containerPoint.x);
+                    const y = Math.min(boxStart.y, e.containerPoint.y);
+                    const w = Math.abs(e.containerPoint.x - boxStart.x);
+                    const h = Math.abs(e.containerPoint.y - boxStart.y);
+                    selectionBox.style.left = x + 'px';
+                    selectionBox.style.top = y + 'px';
+                    selectionBox.style.width = w + 'px';
+                    selectionBox.style.height = h + 'px';
+                }
+            });
+            
+            map.on('mouseup', (e) => {
+                if (boxStart) {
+                    boxStart = null;
+                    selectionBox.style.display = 'none';
+                    
+                    const bounds = map.getBounds();
+                    points.forEach(p => {
+                        if (bounds.contains([p.lat, p.lng])) {
+                            selectedIds.add(p.id);
+                        }
+                    });
+                    updateUI();
+                }
+            });
+            
+            // Click to add point
+            map.on('click', (e) => {
+                if (e.originalEvent.ctrlKey || e.originalEvent.metaKey) return;
+                if (handleSamplerMapClick(e.latlng)) return;
+                const { lat, lng } = e.latlng;
+                addPoint(lat, lng);
+            });
+        }
+
+        function renderTemplateRows() {
+            const container = document.getElementById('template-rows');
+            container.innerHTML = '';
+            
+            template.directions.forEach((t, i) => {
+                const heading = (template.baseHeading + i * 45) % 360;
+                const row = document.createElement('div');
+                row.className = 'template-row';
+                row.innerHTML = `
+                    <label>${i + 1}</label>
+                    <label class="heading" id="heading-label-${i}">${heading}°</label>
+                    <div class="slider-cell">
+                        <span class="slider-inline-label" id="pitch-val-${i}">Pitch: ${t.pitch}°</span>
+                        <input type="range" value="${t.pitch}" min="-90" max="90"
+                               oninput="updateTemplate(${i}, 'pitch', this.value)">
+                    </div>
+                    <div class="slider-cell">
+                        <span class="slider-inline-label" id="fov-val-${i}">FOV: ${t.fov}</span>
+                        <input type="range" value="${t.fov}" min="30" max="120"
+                               oninput="updateTemplate(${i}, 'fov', this.value)">
+                    </div>
+                `;
+                container.appendChild(row);
+            });
+        }
+
+        function updateBottomCrop(value) {
+            const parsedValue = Number.parseInt(value, 10);
+            template.bottomCrop = Number.isNaN(parsedValue) ? 0 : clampBottomCrop(parsedValue);
+
+            const cropInput = document.getElementById('bottom-crop');
+            const cropValue = document.getElementById('bottom-crop-val');
+            if (cropInput) cropInput.value = `${template.bottomCrop}`;
+            if (cropValue) cropValue.textContent = `${template.bottomCrop}px`;
+
+            saveTemplateSettings();
+            applyPreviewCrop();
+        }
+
+        function updateTemplate(idx, field, value) {
+            template.directions[idx][field] = parseInt(value, 10);
+        
+
+
+
+
+            // Update display immediately
+            const display = document.getElementById(`${field}-val-${idx}`);
+            if (display) {
+                display.textContent = field === 'pitch' ? `Pitch: ${value}°` : `FOV: ${value}`;
+            }
+            
+            // Update the heading label for this direction
+            const headingLabel = document.getElementById(`heading-label-${idx}`);
+            if (headingLabel) {
+                const heading = (template.baseHeading + idx * 45) % 360;
+                headingLabel.textContent = `${heading}°`;
+            }
+
+            updateSamplerTemplateSummary();
+
+            saveTemplateSettings();
+            
+            // Debounce API call
+            if (templateDebounce) clearTimeout(templateDebounce);
+            
+            templateDebounce = setTimeout(() => {
+                if (previewPoint) updatePreview();
+                templateDebounce = null;
+            }, 300);
+        }
+
+        function updatePreview() {
+            const img = document.getElementById('preview-img');
+            const info = document.getElementById('preview-info');
+            const dirLabel = document.getElementById('preview-dir');
+            
+            if (!previewPoint) {
+                img.src = '';
+                info.textContent = 'Select one point';
+                dirLabel.textContent = '- / 8';
+                return;
+            }
+            
+            dirLabel.textContent = `${previewDir + 1} / 8`;
+            
+            // Highlight active heading
+            for (let i = 0; i < 8; i++) {
+                const label = document.getElementById(`heading-label-${i}`);
+                if (label) {
+                    label.classList.toggle('active', i === previewDir);
+                }
+            }
+            
+            loadStreetViewImage(previewPoint, sliderHeading, previewDir);
+        }
+
+        function updateHeading(val) {
+            sliderHeading = Number.parseInt(val, 10);
+            document.getElementById('heading-value').textContent = `${val}°`;
+            
+            // Update display immediately, but debounce API call
+            pendingHeading = sliderHeading;
+            
+            if (headingDebounce) clearTimeout(headingDebounce);
+            
+            headingDebounce = setTimeout(() => {
+                if (previewPoint && pendingHeading !== null) {
+                    // Update base heading and previewPoint heading
+                    template.baseHeading = pendingHeading;
+                    previewPoint.heading = pendingHeading;
+                    for (let i = 0; i < 8; i++) {
+                        const label = document.getElementById(`heading-label-${i}`);
+                        if (label) {
+                            label.textContent = (template.baseHeading + i * 45) % 360 + '°';
+                        }
+                    }
+                    updateSamplerTemplateSummary();
+                    saveTemplateSettings();
+                    loadStreetViewImage(previewPoint, pendingHeading, previewDir);
+                }
+                headingDebounce = null;
+            }, 300);
+        }
+        
+        function loadStreetViewImage(point, heading, dir) {
+            const img = document.getElementById('preview-img');
+            const info = document.getElementById('preview-info');
+            const t = template.directions[dir];
+            
+            const params = new URLSearchParams({
+                location: `${point.lat},${point.lng}`,
+                heading: heading,
+                pitch: t.pitch,
+                fov: t.fov,
+                size: '640x640',
+                key: GSV_API_KEY
+            });
+            
+            img.src = `https://maps.googleapis.com/maps/api/streetview?${params}`;
+            trackApiCall();
+            info.textContent = `H:${heading}° P:${t.pitch}° F:${t.fov}`;
+            applyPreviewCrop();
+        }
+
+        function prevPreview() {
+            if (!previewPoint) return;
+            previewDir = (previewDir - 1 + 8) % 8;
+            sliderHeading = (template.baseHeading + previewDir * 45) % 360;
+            document.getElementById('heading-slider').value = sliderHeading;
+            document.getElementById('heading-value').textContent = sliderHeading + '°';
+            updatePreview();
+        }
+
+        function nextPreview() {
+            if (!previewPoint) return;
+            previewDir = (previewDir + 1) % 8;
+            sliderHeading = (template.baseHeading + previewDir * 45) % 360;
+            document.getElementById('heading-slider').value = sliderHeading;
+            document.getElementById('heading-value').textContent = sliderHeading + '°';
+            updatePreview();
+        }
+
+        function playPreview() {
+            if (!previewPoint) {
+                alert('Select one point first');
+                return;
+            }
+            
+            if (playInterval) {
+                clearInterval(playInterval);
+                playInterval = null;
+                document.getElementById('play-btn').textContent = '▶';
+                return;
+            }
+            
+            document.getElementById('play-btn').textContent = '⏹';
+            previewDir = 0;
+            updatePreview();
+            
+            playInterval = setInterval(() => {
+                previewDir = (previewDir + 1) % 8;
+                updatePreview();
+            }, 1500);
+        }
+
+        function addPoint(lat, lng, heading = 180, pitch = 0, fov = 80, radius = 50, sourceRow = {}, skipUpdate = false) {
+            const normalizedLat = toFiniteNumber(lat, 0);
+            const normalizedLng = toFiniteNumber(lng, 0);
+            const normalizedHeading = normalizeHeading(heading);
+            const normalizedPitch = Math.max(-90, Math.min(90, toFiniteInt(pitch, 0)));
+            const normalizedFov = Math.max(30, Math.min(120, toFiniteInt(fov, 80)));
+            const normalizedRadius = Math.max(1, toFiniteInt(radius, 50));
+
+            const id = Date.now() + Math.random();
+            const point = {
+                id,
+                lat: normalizedLat,
+                lng: normalizedLng,
+                heading: normalizedHeading,
+                pitch: normalizedPitch,
+                fov: normalizedFov,
+                radius: normalizedRadius
+            };
+            point.rowData = buildPointRowData(point, sourceRow);
+            points.push(point);
+
+            const marker = L.marker([normalizedLat, normalizedLng], {
+                icon: L.divIcon({
+                    className: 'custom-marker',
+                    html: '<div></div>',
+                    iconSize: [24, 24],
+                    iconAnchor: [12, 24]
+                })
+            });
+            
+            marker.on('click', () => toggleSelection(id));
+            marker.addTo(map);
+            markers[id] = marker;
+
+            if (!skipUpdate) {
+                updateUI();
+            }
+        }
+
+        function toggleSelection(id) {
+            selectedIds.clear();
+            selectedIds.add(id);
+            updateUI();
+        }
+
+        function deletePoint(event, id) {
+            event.stopPropagation();
+            // Remove from points array
+            points = points.filter(p => p.id !== id);
+            // Remove marker
+            if (markers[id]) {
+                map.removeLayer(markers[id]);
+                delete markers[id];
+            }
+            // Remove from selection
+            selectedIds.delete(id);
+            updateUI();
+        }
+
+        function selectAll() {
+            points.forEach((p) => {
+                selectedIds.add(p.id);
+            });
+            updateUI();
+        }
+
+        function clearSelection() {
+            selectedIds.clear();
+            previewPoint = null;
+            updateUI();
+        }
+
+        function updateUI() {
+            document.getElementById('selection-count').textContent = selectedIds.size;
+            
+            // Auto-select first point if only one point exists and nothing selected
+            if (points.length === 1 && selectedIds.size === 0) {
+                selectedIds.add(points[0].id);
+            }
+            
+            if (selectedIds.size === 1) {
+                const selectedId = Array.from(selectedIds)[0];
+                previewPoint = points.find(p => p.id === selectedId);
+                previewDir = 0;
+                template.baseHeading = previewPoint ? previewPoint.heading : 180;
+                sliderHeading = template.baseHeading;
+                document.getElementById('heading-slider').value = sliderHeading;
+                document.getElementById('heading-value').textContent = sliderHeading + '°';
+                renderTemplateRows();
+                updateSamplerTemplateSummary();
+            } else {
+                previewPoint = null;
+            }
+            updatePreview();
+            
+            const list = document.getElementById('points-list');
+            list.innerHTML = points.map(p => `
+                <div class="point-item ${selectedIds.has(p.id) ? 'selected' : ''}" 
+                     onclick="toggleSelection(${p.id})">
+                    <div class="coords">${p.lat.toFixed(4)}, ${p.lng.toFixed(4)}</div>
+                    <div class="meta">H:${p.heading}° P:${p.pitch}° FOV:${p.fov}</div>
+                    <button type="button" class="delete-btn" onclick="deletePoint(event, ${p.id})">×</button>
+                </div>
+            `).join('');
+            
+            Object.keys(markers).forEach(id => {
+                const el = markers[id].getElement();
+                if (el) {
+                    const div = el.querySelector('div');
+                    if (div) {
+                        div.classList.toggle('selected', selectedIds.has(parseFloat(id)));
+                    }
+                }
+            });
+        }
+
+        function importCSV(input) {
+            const file = input.files[0];
+            if (!file) return;
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                parseCSV(e.target.result);
+            };
+            reader.readAsText(file);
+            input.value = '';
+        }
+
+        function parseCSV(csvText) {
+            const matrix = parseCSVMatrix(csvText);
+            if (matrix.length < 2) return;
+
+            const headers = matrix[0].map((header, index) => {
+                const name = String(header || '').trim();
+                return name || `column_${index + 1}`;
+            });
+
+            if (points.length === 0) {
+                csvColumns = [];
+            }
+            ensureCsvColumns(headers);
+            ensureCsvColumns(BASE_COLUMNS);
+
+            const indexByLowerName = {};
+            headers.forEach((header, index) => {
+                const key = header.toLowerCase();
+                if (!(key in indexByLowerName)) {
+                    indexByLowerName[key] = index;
+                }
+            });
+
+            const getCell = (cells, key) => {
+                const index = indexByLowerName[key];
+                if (index === undefined) return '';
+                return cells[index] !== undefined ? String(cells[index]).trim() : '';
+            };
+
+            for (let rowIndex = 1; rowIndex < matrix.length; rowIndex++) {
+                const cells = matrix[rowIndex];
+                const rowData = {};
+                headers.forEach((header, index) => {
+                    rowData[header] = cells[index] !== undefined ? String(cells[index]).trim() : '';
+                });
+
+                let lat = Number.NaN;
+                let lng = Number.NaN;
+
+                const latCell = getCell(cells, 'lat');
+                const lngCell = getCell(cells, 'lng');
+                if (latCell && lngCell) {
+                    lat = Number.parseFloat(latCell);
+                    lng = Number.parseFloat(lngCell);
+                } else {
+                    const parsed = parseLocation(getCell(cells, 'location'));
+                    if (parsed) {
+                        lat = parsed.lat;
+                        lng = parsed.lng;
+                    }
+                }
+
+                if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+                    continue;
+                }
+
+                const heading = toFiniteInt(getCell(cells, 'heading'), 180);
+                const pitch = toFiniteInt(getCell(cells, 'pitch'), 0);
+                const fov = toFiniteInt(getCell(cells, 'fov'), 80);
+                const radius = toFiniteInt(getCell(cells, 'radius'), 50);
+
+                addPoint(lat, lng, heading, pitch, fov, radius, rowData, true);
+            }
+
+            updateUI();
+            if (points.length > 0) {
+                const bounds = L.latLngBounds(points.map((point) => [point.lat, point.lng]));
+                map.fitBounds(bounds, { padding: [50, 50] });
+            }
+        }
+
+        function applyTemplate() {
+            if (selectedIds.size === 0) {
+                alert('Select at least one point');
+                return;
+            }
+            
+            const selected = points.filter(p => selectedIds.has(p.id));
+            const results = [];
+            
+            selected.forEach((p, pointIdx) => {
+                template.directions.forEach((t, dirIdx) => {
+                    const heading = (template.baseHeading + dirIdx * 45) % 360;
+                    results.push({
+                        street: `point_${Math.floor(p.id)}_${dirIdx + 1}`,
+                        label: `p${pointIdx + 1}_d${dirIdx + 1}`,
+                        location: `${p.lat},${p.lng}`,
+                        heading: heading,
+                        pitch: t.pitch,
+                        fov: t.fov,
+                        radius: p.radius
+                    });
+                });
+            });
+
+            const headers = ['street', 'label', 'location', 'heading', 'pitch', 'fov', 'radius', 'bottom_crop'];
+            const rows = results.map((row) => ({ ...row, bottom_crop: String(template.bottomCrop) }));
+            const csv = rowsToCSV(headers, rows);
+            
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'streetview_points_8dir.csv';
+            a.click();
+            URL.revokeObjectURL(url);
+            
+            alert(`Generated ${results.length} rows (${selected.length} points × 8)`);
+        }
+
+        
+        async function saveToRunDir() {
+            if (points.length === 0) {
+                alert('No points to save.');
+                return;
+            }
+            ensureCsvColumns(BASE_COLUMNS);
+            const rows = points.map((point, index) => buildExportRow(point, index));
+            const csv = rowsToCSV(csvColumns, rows);
+
+            try {
+                const response = await fetch('/api/points/save', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ csv_text: csv })
+                });
+                const data = await response.json();
+                if (data.status === 'success') {
+                    alert('Successfully saved points.csv to your active run directory!');
+                } else {
+                    alert('Failed to save to run directory.');
+                }
+            } catch (err) {
+                console.error(err);
+                alert('Error connecting to backend API.');
+            }
+        }
+
+        async function loadFromRunDir() {
+            try {
+                const response = await fetch('/api/points/load');
+                const data = await response.json();
+                if (data.status === 'success' && data.csv_text) {
+                    parseCSV(data.csv_text);
+                    console.log('Loaded points from run directory.');
+                }
+            } catch (err) {
+                console.error('Could not load existing points.csv:', err);
+            }
+        }
+
+        function downloadCSV() {
+            if (points.length === 0) return;
+
+            ensureCsvColumns(BASE_COLUMNS);
+            const rows = points.map((point, index) => buildExportRow(point, index));
+            const csv = rowsToCSV(csvColumns, rows);
+
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'points.csv';
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function importFromParams() {
+            const text = document.getElementById('import-params').value.trim();
+            if (!text) return;
+            
+            let pitch = 0, fov = 80;
+            
+            if (text.includes('pitch=')) {
+                const pitchMatch = text.match(/pitch=(-?\d+)/);
+                const fovMatch = text.match(/fov=(\d+)/);
+                if (pitchMatch) pitch = Number.parseInt(pitchMatch[1], 10);
+                if (fovMatch) fov = Number.parseInt(fovMatch[1], 10);
+            } else if (text.includes(',')) {
+                const parts = text.split(',');
+                pitch = Number.parseInt(parts[3], 10) || 0;
+                fov = Number.parseInt(parts[5], 10) || 80;
+            }
+            
+            template.directions = template.directions.map(() => ({ pitch, fov }));
+            saveTemplateSettings();
+            renderTemplateRows();
+            updateSamplerTemplateSummary();
+            document.getElementById('import-params').value = '';
+            if (previewPoint) updatePreview();
+        }
+
+        initMap();
+        renderTemplateRows();
+        loadTemplateSettings();
+        refreshTemplatePresetSelect();
+        updateAreaModeUI();
+        updateSamplerSegmentCount();
+        window.addEventListener('resize', applyPreviewCrop);
+        
+        // Delay counter init slightly to ensure DOM is ready
+        setTimeout(initApiCounter, 0);
+    </script>
+    
+    <div class="api-counter" id="api-counter">
+        <span>Session: <b id="counter-session">0</b></span>
+        <span>Today: <b id="counter-today">0</b></span>
+        <span>Cumulative: <b id="counter-cumulative">0</b></span>
+    </div>
+</body>
+</html>

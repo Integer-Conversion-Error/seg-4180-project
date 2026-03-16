@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Training Viewer</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; padding: 16px; background: #f3f4f6; }
+    .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+    select, button { padding: 8px; border-radius: 6px; border: 1px solid #d1d5db; }
+    .section { background: white; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+    h2 { margin-top: 0; color: #111; }
+    .files-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+    .file-card { border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px; text-align: center; }
+    .file-card img { max-width: 100%; height: auto; border-radius: 4px; margin-bottom: 8px; }
+    .file-card a { text-decoration: none; color: #2563eb; }
+    .file-card a:hover { text-decoration: underline; }
+    .folder { color: #059669; font-weight: bold; }
+    .weight { color: #dc2626; font-weight: bold; }
+    .plot { color: #7c3aed; }
+    .meta { color: #6b7280; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <a href="/" style="display:inline-block; margin-bottom: 12px; text-decoration:none; color:#2563eb;">&larr; Back to Tools</a>
+  <h1>Training Viewer</h1>
+  
+  <div class="toolbar">
+    <select id="runSelect">
+      <option value="">Select a run...</option>
+    </select>
+    <button id="reloadBtn">Reload</button>
+  </div>
+
+  <div id="content"></div>
+
+  <script>
+    const runSelect = document.getElementById('runSelect');
+    const content = document.getElementById('content');
+    let currentRun = '';
+
+    async function loadRuns() {
+      const res = await fetch('/api/training/runs');
+      const runs = await res.json();
+      runSelect.innerHTML = '<option value="">Select a run...</option>';
+      for (const run of runs) {
+        const opt = document.createElement('option');
+        opt.value = run.path;
+        opt.textContent = run.name;
+        runSelect.appendChild(opt);
+      }
+      if (runs.length > 0) {
+        runSelect.value = runs[0].path;
+        loadRun(runs[0].path);
+      }
+    }
+
+    async function loadRun(runPath) {
+      currentRun = runPath;
+      content.innerHTML = '<p>Loading...</p>';
+      const res = await fetch(`/api/training/run?path=${encodeURIComponent(runPath)}`);
+      const data = await res.json();
+      
+      let html = `<div class="section"><h2>${data.name}</h2>`;
+      
+      if (data.weights.length > 0) {
+        html += '<h3>Weights</h3><div class="files-grid">';
+        for (const w of data.weights) {
+          html += `<div class="file-card weight"><a href="${w.url}">${w.name}</a><div class="meta">${w.size}</div></div>`;
+        }
+        html += '</div>';
+      }
+      
+      if (data.plots.length > 0) {
+        html += '<h3>Plots</h3><div class="files-grid">';
+        for (const p of data.plots) {
+          html += `<div class="file-card plot"><img src="${p.url}" alt="${p.name}" /><div>${p.name}</div></div>`;
+        }
+        html += '</div>';
+      }
+      
+      if (data.other.length > 0) {
+        html += '<h3>Other Files</h3><div class="files-grid">';
+        for (const o of data.other) {
+          html += `<div class="file-card"><a href="${o.url}">${o.name}</a><div class="meta">${o.size}</div></div>`;
+        }
+        html += '</div>';
+      }
+      
+      if (data.subdirs.length > 0) {
+        html += '<h3>Subdirectories</h3><div class="files-grid">';
+        for (const s of data.subdirs) {
+          html += `<div class="file-card folder"><a href="javascript:loadRun('${s.path}')">${s.name}/</a></div>`;
+        }
+        html += '</div>';
+      }
+      
+      html += '</div>';
+      content.innerHTML = html;
+    }
+
+    runSelect.addEventListener('change', () => {
+      if (runSelect.value) loadRun(runSelect.value);
+    });
+    document.getElementById('reloadBtn').addEventListener('click', loadRuns);
+
+    loadRuns();
+  </script>
+</body>
+</html>

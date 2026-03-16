@@ -1,0 +1,1225 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Synthetic Review Buckets</title>
+  <style>
+    :root {
+      --card-base-size: 220px;
+      --card-scale: 1;
+    }
+    body { font-family: Arial, sans-serif; margin: 0; padding: 16px 16px 16px 16px; background: #f3f4f6; }
+    .toolbar {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+      margin-bottom: 12px;
+      position: sticky;
+      top: 0;
+      background: white;
+      border-bottom: 1px solid #e5e7eb;
+      padding: 16px 0;
+      z-index: 1000;
+    }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(calc(var(--card-base-size) * var(--card-scale)), 1fr)); gap: 10px; }
+    .card { border: 2px solid transparent; background: white; border-radius: 8px; overflow: hidden; cursor: pointer; }
+    .card.selected { border-color: #2563eb; }
+    .card img { width: 100%; height: auto; aspect-ratio: 640 / 610; object-fit: contain; display: block; background: #e5e7eb; }
+    .meta { padding: 8px; font-size: 12px; color: #374151; }
+    button, select, input { padding: 8px; border-radius: 6px; border: 1px solid #d1d5db; }
+    .status { margin-left: auto; color: #6b7280; font-size: 13px; }
+    .zoom-label { min-width: 50px; text-align: center; color: #6b7280; font-size: 13px; }
+    
+    /* Modal Styles */
+    .modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.5);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 2000;
+    }
+    .modal-content {
+      background: white;
+      border-radius: 12px;
+      max-width: 90vw;
+      max-height: 90vh;
+      overflow: hidden;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+    }
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 16px 24px;
+      border-bottom: 1px solid #eee;
+    }
+    .modal-title {
+      font-size: 18px;
+      font-weight: 600;
+      color: #333;
+    }
+    .modal-close {
+      background: none;
+      border: none;
+      font-size: 24px;
+      cursor: pointer;
+      padding: 0;
+      line-height: 1;
+    }
+    .modal-body {
+      display: flex;
+      gap: 24px;
+      padding: 24px;
+      overflow: auto;
+    }
+    .modal-image-container {
+      flex: 1;
+      text-align: center;
+    }
+    .modal-image-label {
+      display: block;
+      margin-bottom: 8px;
+      font-weight: 500;
+      color: #555;
+    }
+    .modal-image {
+      max-width: 100%;
+      border-radius: 8px;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+    }
+    .modal-footer {
+      display: flex;
+      justify-content: flex-end;
+      gap: 12px;
+      padding: 16px 24px;
+      border-top: 1px solid #eee;
+    }
+    .btn-accept {
+      background: #10b981;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 6px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .btn-accept:hover {
+      background: #059669;
+    }
+    .btn-reject {
+      background: #ef4444;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 6px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .btn-reject:hover {
+      background: #dc2626;
+    }
+    .btn-secondary {
+      background: #6b7280;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 6px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .btn-secondary:hover {
+      background: #4b5563;
+    }
+    .loading-spinner {
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      border: 3px solid rgba(0, 0, 0, 0.1);
+      border-radius: 50%;
+      border-top-color: #3b82f6;
+      animation: spin 1s ease-in-out infinite;
+      vertical-align: middle;
+      margin-left: 8px;
+    }
+    .batch-modal {
+      width: min(1800px, 98vw);
+      max-height: 90vh;
+      display: flex;
+      flex-direction: column;
+    }
+    .batch-intro {
+      padding: 12px 24px 0;
+      color: #374151;
+      font-size: 13px;
+      line-height: 1.4;
+    }
+    .batch-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 10px 24px 4px;
+      align-items: center;
+    }
+    .batch-toolbar button {
+      border: none;
+      color: white;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 7px 12px;
+      border-radius: 6px;
+    }
+    .btn-all-apply { background: #10b981; }
+    .btn-all-keep { background: #4b5563; }
+    .btn-all-reject { background: #ef4444; }
+    .btn-regenerate-focused { background: #2563eb; }
+    .regenerate-controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 8px 24px 10px;
+      border-bottom: 1px solid #e5e7eb;
+      align-items: center;
+      background: #f9fafb;
+    }
+    .regenerate-controls select,
+    .regenerate-controls input {
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      padding: 7px 8px;
+      font-size: 13px;
+      min-width: 230px;
+    }
+    .regenerate-controls button {
+      border: none;
+      border-radius: 6px;
+      padding: 7px 12px;
+      font-size: 13px;
+      font-weight: 600;
+      color: white;
+      background: #2563eb;
+      cursor: pointer;
+    }
+    .regen-hint {
+      font-size: 12px;
+      color: #6b7280;
+      width: 100%;
+    }
+    .batch-summary {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 4px 24px 10px;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    .summary-pill {
+      border-radius: 999px;
+      padding: 5px 10px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .summary-apply { background: #d1fae5; color: #065f46; }
+    .summary-keep { background: #e5e7eb; color: #374151; }
+    .summary-reject { background: #fee2e2; color: #991b1b; }
+    .summary-failed { background: #fef3c7; color: #92400e; }
+    .batch-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 0 24px;
+    }
+    .batch-row {
+      display: grid;
+      grid-template-columns: auto auto 1fr;
+      gap: 12px;
+      align-items: start;
+      padding: 12px 0;
+      border-bottom: 1px solid #f3f4f6;
+      border-radius: 8px;
+    }
+    .batch-row.focused {
+      background: #eff6ff;
+      outline: 2px solid #bfdbfe;
+      outline-offset: -2px;
+    }
+    .batch-image-wrap {
+      width: 500px;
+      max-width: 50vw;
+    }
+    .batch-image-label {
+      font-size: 12px;
+      color: #6b7280;
+      margin-bottom: 6px;
+      font-weight: 600;
+    }
+    .batch-image {
+      width: 100%;
+      height: auto;
+      border-radius: 7px;
+      border: 1px solid #e5e7eb;
+      display: block;
+      background: #f3f4f6;
+    }
+    .batch-meta {
+      min-width: 230px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      justify-content: flex-start;
+    }
+    .batch-id {
+      font-size: 12px;
+      color: #374151;
+      font-weight: 600;
+      word-break: break-all;
+    }
+    .decision-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .decision-btn {
+      border: 1px solid #d1d5db;
+      border-radius: 999px;
+      background: white;
+      color: #374151;
+      font-size: 12px;
+      padding: 6px 10px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    .decision-btn.active-apply {
+      background: #10b981;
+      color: white;
+      border-color: #10b981;
+    }
+    .decision-btn.active-keep {
+      background: #4b5563;
+      color: white;
+      border-color: #4b5563;
+    }
+    .decision-btn.active-reject {
+      background: #ef4444;
+      color: white;
+      border-color: #ef4444;
+    }
+    .decision-btn.regen-btn {
+      background: #2563eb;
+      color: white;
+      border-color: #2563eb;
+    }
+    .decision-btn.regen-btn:disabled {
+      background: #9ca3af;
+      border-color: #9ca3af;
+      cursor: not-allowed;
+    }
+    .decision-hint {
+      font-size: 11px;
+      color: #9ca3af;
+      line-height: 1.4;
+    }
+    .batch-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 24px;
+      border-top: 1px solid #e5e7eb;
+      background: #ffffff;
+    }
+    .batch-footer-note {
+      color: #6b7280;
+      font-size: 12px;
+    }
+    @media (max-width: 1100px) {
+      .batch-row {
+        grid-template-columns: 1fr;
+      }
+      .batch-image-wrap {
+        width: 100%;
+        max-width: none;
+      }
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <a href="/" style="display:inline-block; margin-bottom: 12px; text-decoration:none; color:#2563eb;">&larr; Back to Tools</a>
+  <div class="toolbar">
+    <select id="bucketSel">
+      <option value="">All Buckets</option>
+      <option value="EV-SNV">EV-SNV</option>
+      <option value="EV-SE">EV-SE</option>
+      <option value="SVO-E">SVO-E</option>
+      <option value="SVO-NV">SVO-NV</option>
+    </select>
+    <select id="statusSel">
+      <option value="todo">todo</option>
+      <option value="approved">approved</option>
+      <option value="rejected">rejected</option>
+      <option value="edited">edited</option>
+      <option value="">all</option>
+    </select>
+    <button id="reloadBtn">Reload</button>
+    <button id="approveBtn">Mark Approved</button>
+    <button id="rejectBtn">Mark Rejected</button>
+    <button id="editedBtn">Mark Edited</button>
+    <span id="costSummary" class="status" style="margin-left: 8px;">Cost total: $0.000000 | Grok: $0.000000 | Gemini: $0.000000 | Flux: $0.000000</span>
+    <select id="touchupPromptSelect" style="min-width:250px;" title="Select prompt used for regeneration">
+      <option value="mode:preset">Preset: Improve blending</option>
+      <option value="mode:fix_direction">Preset: Fix vehicle direction</option>
+      <option value="mode:fix_lighting">Preset: Fix lighting/shadows</option>
+      <option value="custom:input">Custom prompt (text input)</option>
+    </select>
+    <select id="touchupProviderSelect" style="min-width:140px;" title="Select provider used for touchup edits">
+      <option value="gemini">Provider: Gemini</option>
+      <option value="grok">Provider: Grok</option>
+      <option value="flux">Provider: Flux</option>
+    </select>
+    <input id="customPrompt" type="text" placeholder="Custom prompt text (used when Custom prompt is selected)" style="min-width:320px;" />
+    <button id="regenerateBtn" title="Regenerate selected images using the prompt selected in dropdown">Regenerate Selected</button>
+    
+    <!-- Custom Preset Management -->
+    <div id="presetManagement" style="display: flex; gap: 8px; align-items: center; margin-left: 16px;">
+        <input id="newPresetName" type="text" placeholder="Preset name" style="min-width:120px;" />
+        <input id="newPresetPrompt" type="text" placeholder="Prompt text" style="min-width:200px;" />
+        <button id="savePresetBtn">Save as Preset</button>
+        <select id="customPresetsSelect" style="min-width:150px;">
+            <option value="">Custom Presets</option>
+        </select>
+        <button id="loadPresetBtn">Load Preset</button>
+        <button id="deletePresetBtn">Delete Preset</button>
+    </div>
+    <div class="group">
+      <button id="zoomOutBtn">-20%</button>
+      <span id="zoomLabel" class="zoom-label">100%</span>
+      <button id="zoomInBtn">+20%</button>
+    </div>
+    <span id="statusText" class="status">Loading...</span>
+  </div>
+
+  <div id="grid" class="grid"></div>
+
+  <script>
+    const grid = document.getElementById('grid');
+    const statusText = document.getElementById('statusText');
+    const bucketSel = document.getElementById('bucketSel');
+    const statusSel = document.getElementById('statusSel');
+    const touchupPromptSelect = document.getElementById('touchupPromptSelect');
+    const touchupProviderSelect = document.getElementById('touchupProviderSelect');
+    const costSummary = document.getElementById('costSummary');
+    const customPrompt = document.getElementById('customPrompt');
+    const zoomLabelEl = document.getElementById('zoomLabel');
+    let items = [];
+    let selected = new Set();
+    let cardScale = 1;
+    const customPresetPromptMap = new Map();
+
+    function applyCardScale() {
+      document.documentElement.style.setProperty('--card-scale', String(cardScale));
+      zoomLabelEl.textContent = `${Math.round(cardScale * 100)}%`;
+    }
+
+    function changeCardScale(delta) {
+      const next = Number((cardScale + delta).toFixed(2));
+      cardScale = Math.max(0.4, Math.min(3, next));
+      applyCardScale();
+    }
+
+    function getSelectedTouchupConfig(promptSelectEl = touchupPromptSelect, customPromptInputEl = customPrompt) {
+      const selectedValue = promptSelectEl.value || 'mode:preset';
+      const selectedLabel = promptSelectEl.options[promptSelectEl.selectedIndex]?.textContent || selectedValue;
+
+      if (selectedValue.startsWith('mode:')) {
+        return {
+          promptMode: selectedValue.slice('mode:'.length),
+          customPromptText: null,
+          promptLabel: selectedLabel,
+        };
+      }
+
+      if (selectedValue === 'custom:input') {
+        const typedPrompt = customPromptInputEl.value.trim();
+        if (!typedPrompt) {
+          throw new Error('Enter a custom prompt first, or choose a preset from the dropdown.');
+        }
+        return {
+          promptMode: 'custom',
+          customPromptText: typedPrompt,
+          promptLabel: selectedLabel,
+        };
+      }
+
+      if (selectedValue.startsWith('custom:preset:')) {
+        const encodedName = selectedValue.slice('custom:preset:'.length);
+        const presetName = decodeURIComponent(encodedName);
+        const presetPrompt = customPresetPromptMap.get(presetName);
+        if (!presetPrompt) {
+          throw new Error(`Preset prompt not found for '${presetName}'. Reload presets and try again.`);
+        }
+        return {
+          promptMode: 'custom',
+          customPromptText: presetPrompt,
+          promptLabel: selectedLabel,
+        };
+      }
+
+      throw new Error(`Unsupported prompt selection: ${selectedValue}`);
+    }
+
+    function getSelectedTouchupProvider(providerSelectEl = touchupProviderSelect) {
+      const value = String(providerSelectEl.value || '').trim().toLowerCase();
+      return ['grok', 'gemini', 'flux'].includes(value) ? value : 'gemini';
+    }
+
+    function fmtUsd(value) {
+      return `$${Number(value || 0).toFixed(6)}`;
+    }
+
+    async function refreshCostSummary() {
+      try {
+        const res = await fetch('/api/synth/costs');
+        if (!res.ok) return;
+        const data = await res.json();
+        const totals = data?.totals || {};
+        const providers = totals?.providers || {};
+        costSummary.textContent = `Cost total: ${fmtUsd(totals?.overall_usd)} | Grok: ${fmtUsd(providers?.grok?.usd)} | Gemini: ${fmtUsd(providers?.gemini?.usd)} | Flux: ${fmtUsd(providers?.flux?.usd)}`;
+      } catch (_err) {
+        // Keep default placeholder if unavailable.
+      }
+    }
+
+    async function initializeTouchupProviders() {
+      try {
+        const res = await fetch('/api/synth/models');
+        if (!res.ok) return;
+        const data = await res.json();
+        const provider = String(data?.default_touchup_provider || '').toLowerCase();
+        if (['grok', 'gemini', 'flux'].includes(provider)) {
+          touchupProviderSelect.value = provider;
+        }
+      } catch (_err) {
+        // Keep static default when model metadata is unavailable.
+      }
+    }
+
+    async function loadItems() {
+      const bucket = encodeURIComponent(bucketSel.value || '');
+      const status = encodeURIComponent(statusSel.value || '');
+      statusText.textContent = 'Loading...';
+      const res = await fetch(`/api/synth/review-buckets/items?bucket=${bucket}&status=${status}&limit=1000`);
+      const data = await res.json();
+      items = data.items || [];
+      selected.clear();
+      render();
+      statusText.textContent = `${items.length} shown`;
+    }
+
+    function render() {
+      grid.innerHTML = '';
+      for (const item of items) {
+        const card = document.createElement('div');
+        card.className = `card${selected.has(item.image_id) ? ' selected' : ''}`;
+        card.innerHTML = `
+          <img src="${item.url}" alt="${item.image_id}" loading="lazy" />
+          <div class="meta">
+            <div><strong>${item.review_bucket}</strong> | ${item.review_status}</div>
+            <div>${item.image_id}</div>
+            <div>parent: ${item.parent_image_id || 'n/a'}</div>
+          </div>
+        `;
+        card.addEventListener('click', () => {
+          if (selected.has(item.image_id)) selected.delete(item.image_id);
+          else selected.add(item.image_id);
+          render();
+          statusText.textContent = `${selected.size} selected`;
+        });
+        grid.appendChild(card);
+      }
+    }
+
+    async function bulkStatus(newStatus) {
+      const image_ids = [...selected];
+      if (!image_ids.length) return;
+      const res = await fetch('/api/synth/review-buckets/status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image_ids, review_status: newStatus }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        let msg = 'Status update failed';
+        if (body.detail) {
+          if (Array.isArray(body.detail)) {
+            msg = body.detail.map(e => e.msg || JSON.stringify(e)).join('; ');
+          } else if (typeof body.detail === 'string') {
+            msg = body.detail;
+          }
+        }
+        alert(msg);
+        return;
+      }
+        await loadItems();
+        await refreshCostSummary();
+      }
+
+     // Worker pool: run up to `concurrency` tasks in parallel, return all results in order
+     async function runWithPool(tasks, concurrency) {
+       const results = new Array(tasks.length);
+       let nextIdx = 0;
+
+       async function worker() {
+         while (nextIdx < tasks.length) {
+           const idx = nextIdx++;
+           try {
+             results[idx] = { ok: true, value: await tasks[idx]() };
+           } catch (err) {
+             results[idx] = { ok: false, error: err };
+           }
+         }
+       }
+
+       const workers = Array.from({ length: Math.min(concurrency, tasks.length) }, worker);
+       await Promise.all(workers);
+       return results;
+     }
+
+     async function touchup() {
+       const selectedItems = items.filter((x) => selected.has(x.image_id));
+       if (!selectedItems.length) return;
+
+        let promptConfig;
+        try {
+          promptConfig = getSelectedTouchupConfig();
+        } catch (err) {
+          alert(err.message || String(err));
+          return;
+        }
+        const selectedProvider = getSelectedTouchupProvider();
+
+        const WORKER_POOL_SIZE = 24;
+
+       // Build overlay showing live progress
+       const progressOverlay = document.createElement('div');
+       progressOverlay.className = 'modal-overlay';
+       let doneCount = 0;
+       const total = selectedItems.length;
+       const updateProgress = () => {
+         progressOverlay.querySelector('.progress-text').textContent =
+           `Generating touchups… ${doneCount} / ${total}`;
+         progressOverlay.querySelector('.progress-bar-fill').style.width =
+           `${Math.round((doneCount / total) * 100)}%`;
+       };
+       progressOverlay.innerHTML = `
+         <div class="modal-content" style="min-width:360px; padding:32px; text-align:center;">
+           <div class="progress-text" style="margin-bottom:16px; font-size:15px; color:#374151;">Generating touchups… 0 / ${total}</div>
+           <div style="background:#e5e7eb; border-radius:999px; height:10px; overflow:hidden;">
+             <div class="progress-bar-fill" style="height:100%; width:0%; background:#3b82f6; transition:width 0.2s;"></div>
+           </div>
+             <div style="margin-top:12px; color:#9ca3af; font-size:12px;">${WORKER_POOL_SIZE} workers · ${total} image${total !== 1 ? 's' : ''}</div>
+             <div style="margin-top:4px; color:#6b7280; font-size:12px;">Provider: ${selectedProvider}</div>
+             <div style="margin-top:4px; color:#6b7280; font-size:12px;">Prompt: ${promptConfig.promptLabel}</div>
+           </div>
+         `;
+        document.body.appendChild(progressOverlay);
+
+       // Fire all touchup API calls in parallel via pool
+        const tasks = selectedItems.map((item) => async () => {
+           const payload = {
+             image_relative_path: item.relative_path,
+              prompt_mode: promptConfig.promptMode,
+              provider: selectedProvider,
+            };
+           if (promptConfig.promptMode === 'custom') {
+             payload.custom_prompt = promptConfig.customPromptText;
+           }
+          try {
+            const res = await fetch('/api/synth/touchup', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.detail || 'Touchup failed');
+            console.log('Touchup prompt:', data.prompt_used);
+            return { item, touchupPath: data.image, isTemp: data.is_temp || false };
+          } finally {
+            doneCount++;
+            updateProgress();
+          }
+        });
+
+       const poolResults = await runWithPool(tasks, WORKER_POOL_SIZE);
+       progressOverlay.remove();
+
+       // Partition successes and failures
+       const successes = poolResults.filter((r) => r.ok).map((r) => r.value);
+       const failures = poolResults.filter((r) => !r.ok);
+
+       if (failures.length > 0) {
+         const msgs = failures.map((r) => r.error?.message || 'Unknown error');
+         console.warn('Some touchups failed:', msgs);
+         if (successes.length === 0) {
+           alert(`All ${failures.length} touchup(s) failed.\n\n${msgs.slice(0, 5).join('\n')}`);
+           return;
+         }
+       }
+
+       // Show batch preview for all successes, then reload
+       if (successes.length > 0) {
+         await showBatchPreviewModal(successes, failures.length);
+       }
+
+       await loadItems();
+     }
+
+     async function updateReviewStatus(imageIds, reviewStatus) {
+       if (!imageIds.length) return;
+       const res = await fetch('/api/synth/review-buckets/status', {
+         method: 'POST',
+         headers: { 'Content-Type': 'application/json' },
+         body: JSON.stringify({ image_ids: imageIds, review_status: reviewStatus }),
+       });
+       if (!res.ok) {
+         const body = await res.json().catch(() => ({}));
+         throw new Error(body.detail || `Failed to set status: ${reviewStatus}`);
+       }
+     }
+
+     async function applyTouchupToOriginal(resultItem) {
+       if (!resultItem.isTemp) return;
+       const res = await fetch('/api/synth/apply-touchup', {
+         method: 'POST',
+         headers: { 'Content-Type': 'application/json' },
+         body: JSON.stringify({
+           original_image_path: resultItem.item.relative_path,
+           touchup_image_path: resultItem.touchupPath,
+         }),
+       });
+       if (!res.ok) {
+         const body = await res.json().catch(() => ({}));
+         throw new Error(body.detail || 'Failed to apply touchup file');
+       }
+     }
+
+     async function showBatchPreviewModal(results, failureCount) {
+       return new Promise((resolve) => {
+         const overlay = document.createElement('div');
+         overlay.className = 'modal-overlay';
+
+         // Decision states: apply_touchup, keep_original, reject_image
+         const states = results.map(() => 'apply_touchup');
+         const regenerating = results.map(() => false);
+         let focusedIdx = 0;
+         let modalClosed = false;
+
+         function getCounts() {
+           let apply = 0;
+           let keep = 0;
+           let reject = 0;
+           for (const state of states) {
+             if (state === 'apply_touchup') apply += 1;
+             else if (state === 'keep_original') keep += 1;
+             else reject += 1;
+           }
+           return { apply, keep, reject };
+         }
+
+         function buttonClass(state, target) {
+           const base = 'decision-btn';
+           if (state !== target) return base;
+           if (target === 'apply_touchup') return `${base} active-apply`;
+           if (target === 'keep_original') return `${base} active-keep`;
+           return `${base} active-reject`;
+         }
+
+         function buildRows() {
+           return results
+             .map((r, i) => {
+               const state = states[i];
+               const touchupUrl = `/files/${r.touchupPath}?t=${Date.now()}`;
+                return `
+                  <div class="batch-row${i === focusedIdx ? ' focused' : ''}" data-idx="${i}" data-row-index="${i}" tabindex="0">
+                   <div class="batch-image-wrap">
+                     <div class="batch-image-label">Current image</div>
+                     <img class="batch-image" src="${r.item.url}" alt="Current ${r.item.image_id}" />
+                   </div>
+                   <div class="batch-image-wrap">
+                     <div class="batch-image-label">Touchup candidate</div>
+                     <img class="batch-image" src="${touchupUrl}" alt="Touchup ${r.item.image_id}" />
+                   </div>
+                   <div class="batch-meta">
+                     <div class="batch-id">${r.item.image_id}</div>
+                      <div class="decision-group">
+                        <button class="${buttonClass(state, 'apply_touchup')}" data-idx="${i}" data-decision="apply_touchup">Use touchup</button>
+                        <button class="${buttonClass(state, 'keep_original')}" data-idx="${i}" data-decision="keep_original">Keep original</button>
+                        <button class="${buttonClass(state, 'reject_image')}" data-idx="${i}" data-decision="reject_image">Reject image</button>
+                        <button class="decision-btn regen-btn" data-idx="${i}" data-row-regenerate="${i}" ${regenerating[i] ? 'disabled' : ''}>${regenerating[i] ? 'Regenerating...' : 'Regenerate'}</button>
+                      </div>
+                      <div class="decision-hint">Use touchup = overwrite image + mark edited. Keep original = no file/status change. Reject image = mark rejected.</div>
+                    </div>
+                  </div>
+                `;
+             })
+             .join('');
+         }
+
+         function updateSummary() {
+           const c = getCounts();
+           overlay.querySelector('#pillApply').textContent = `Use touchup: ${c.apply}`;
+           overlay.querySelector('#pillKeep').textContent = `Keep original: ${c.keep}`;
+           overlay.querySelector('#pillReject').textContent = `Reject image: ${c.reject}`;
+           overlay.querySelector('#batchApply').textContent =
+             c.apply || c.reject
+               ? `Apply decisions (${c.apply} edit${c.apply !== 1 ? 's' : ''}, ${c.reject} reject${c.reject !== 1 ? 's' : ''})`
+               : 'Done (no changes)';
+         }
+
+         function refreshRows() {
+           overlay.querySelector('#batchRows').innerHTML = buildRows();
+           attachDecisionListeners();
+           updateSummary();
+         }
+
+         function setAll(decision) {
+           states.fill(decision);
+           refreshRows();
+         }
+
+         overlay.innerHTML = `
+           <div class="modal-content batch-modal">
+             <div class="modal-header">
+               <div class="modal-title">Review Touchup Results — ${results.length} image${results.length !== 1 ? 's' : ''}</div>
+               <button class="modal-close">&times;</button>
+             </div>
+             <div class="batch-intro">
+               Choose an outcome per image. This separates "rejecting a touchup" from "rejecting the image" so actions are explicit.
+             </div>
+              <div class="batch-toolbar">
+                 <button class="btn-all-apply" id="batchAllApply">Use touchup for all (Shift+A)</button>
+                 <button class="btn-all-keep" id="batchAllKeep">Keep original for all (Shift+O)</button>
+                 <button class="btn-all-reject" id="batchAllReject">Reject all images (Shift+X)</button>
+              </div>
+              <div class="regenerate-controls">
+                <select id="batchPromptSelect"></select>
+                <input id="batchCustomPrompt" type="text" placeholder="Custom prompt text (used for Custom prompt option)" />
+                <button id="batchRegenerateFocused" class="btn-regenerate-focused">Regenerate focused (Shift+G)</button>
+                <div class="regen-hint">Use this during before/after review when a Gemini touchup is subpar. Prompt dropdown includes built-ins and saved presets.</div>
+              </div>
+              <div class="batch-summary">
+               <span class="summary-pill summary-apply" id="pillApply"></span>
+               <span class="summary-pill summary-keep" id="pillKeep"></span>
+               <span class="summary-pill summary-reject" id="pillReject"></span>
+               ${failureCount > 0 ? `<span class="summary-pill summary-failed">Generation failed: ${failureCount}</span>` : ''}
+             </div>
+             <div class="batch-list" id="batchRows">${buildRows()}</div>
+             <div class="batch-footer">
+                  <div class="batch-footer-note">Shortcuts: Up/Down = move row, A = use touchup, O = keep original, X = reject image, Shift+G = regenerate focused, Shift+A/O/X = set all, Enter = apply, Esc = close</div>
+               <div style="display:flex; gap:8px;">
+                 <button class="btn-secondary" id="batchCancel">Close</button>
+                 <button class="btn-accept" id="batchApply"></button>
+               </div>
+             </div>
+           </div>
+         `;
+
+         document.body.appendChild(overlay);
+
+         const modalPromptSelect = overlay.querySelector('#batchPromptSelect');
+         const modalCustomPrompt = overlay.querySelector('#batchCustomPrompt');
+         modalPromptSelect.innerHTML = touchupPromptSelect.innerHTML;
+         if ([...modalPromptSelect.options].some((opt) => opt.value === touchupPromptSelect.value)) {
+           modalPromptSelect.value = touchupPromptSelect.value;
+         }
+         modalCustomPrompt.value = customPrompt.value;
+
+         function getModalPromptConfig() {
+           return getSelectedTouchupConfig(modalPromptSelect, modalCustomPrompt);
+         }
+
+         modalPromptSelect.addEventListener('change', () => {
+           const value = modalPromptSelect.value || '';
+           if (value.startsWith('custom:preset:')) {
+             const name = decodeURIComponent(value.slice('custom:preset:'.length));
+             const promptText = customPresetPromptMap.get(name) || '';
+             modalCustomPrompt.value = promptText;
+           }
+         });
+
+         function focusRow(nextIdx) {
+           focusedIdx = Math.max(0, Math.min(results.length - 1, nextIdx));
+           refreshRows();
+           const row = overlay.querySelector(`[data-row-index="${focusedIdx}"]`);
+           if (row) row.focus({ preventScroll: true });
+         }
+
+         function cleanup() {
+           modalClosed = true;
+           overlay.remove();
+           document.removeEventListener('keydown', handleKeydown);
+         }
+
+         function attachDecisionListeners() {
+           overlay.querySelectorAll('[data-decision]').forEach((btn) => {
+             btn.addEventListener('click', () => {
+               const idx = Number(btn.getAttribute('data-idx'));
+               const decision = btn.getAttribute('data-decision');
+               focusedIdx = idx;
+               states[idx] = decision;
+               refreshRows();
+             });
+           });
+            overlay.querySelectorAll('[data-row-index]').forEach((row) => {
+              row.addEventListener('click', () => {
+                focusedIdx = Number(row.getAttribute('data-row-index'));
+                refreshRows();
+              });
+            });
+           overlay.querySelectorAll('[data-row-regenerate]').forEach((btn) => {
+             btn.addEventListener('click', async () => {
+               const idx = Number(btn.getAttribute('data-row-regenerate'));
+               await regenerateAtIndex(idx);
+             });
+           });
+         }
+
+         async function regenerateAtIndex(idx) {
+           if (idx < 0 || idx >= results.length || regenerating[idx]) return;
+
+            let promptConfig;
+            try {
+              promptConfig = getModalPromptConfig();
+            } catch (err) {
+              alert(err.message || String(err));
+              return;
+            }
+            const selectedProvider = getSelectedTouchupProvider();
+
+           focusedIdx = idx;
+           regenerating[idx] = true;
+           if (!modalClosed) refreshRows();
+
+           try {
+              const payload = {
+                image_relative_path: results[idx].item.relative_path,
+                prompt_mode: promptConfig.promptMode,
+                provider: selectedProvider,
+              };
+             if (promptConfig.promptMode === 'custom') {
+               payload.custom_prompt = promptConfig.customPromptText;
+             }
+
+              const res = await fetch('/api/synth/touchup', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+              });
+              const body = await res.json().catch(() => ({}));
+              if (!res.ok) {
+                throw new Error(body.detail || 'Regeneration failed');
+              }
+              console.log('Touchup prompt:', body.prompt_used);
+
+              results[idx].touchupPath = body.image;
+             results[idx].isTemp = body.is_temp || false;
+             states[idx] = 'apply_touchup';
+           } catch (err) {
+             if (!modalClosed) {
+               alert(`Regeneration failed for ${results[idx].item.image_id}: ${err.message || err}`);
+             }
+           } finally {
+             regenerating[idx] = false;
+              if (!modalClosed) {
+                refreshRows();
+                const row = overlay.querySelector(`[data-row-index="${idx}"]`);
+                if (row) row.scrollIntoView({ block: 'nearest' });
+              }
+              refreshCostSummary();
+            }
+          }
+
+         async function applyDecisions() {
+           if (regenerating.some(Boolean)) {
+             alert('Please wait for regeneration to finish before applying decisions.');
+             return;
+           }
+
+           const c = getCounts();
+           if (!c.apply && !c.reject) {
+             cleanup();
+             resolve();
+             return;
+           }
+
+           const applyBtn = overlay.querySelector('#batchApply');
+           applyBtn.disabled = true;
+           applyBtn.textContent = 'Applying...';
+
+           const applyTargets = results.filter((_, i) => states[i] === 'apply_touchup');
+           const rejectTargets = results.filter((_, i) => states[i] === 'reject_image');
+
+           const applyTasks = applyTargets.map((resultItem) => async () => {
+             await applyTouchupToOriginal(resultItem);
+             return resultItem.item.image_id;
+           });
+
+           const applyOutcomes = await runWithPool(applyTasks, 30);
+           const appliedIds = applyOutcomes.filter((o) => o.ok).map((o) => o.value);
+           const applyErrors = applyOutcomes.filter((o) => !o.ok);
+
+           try {
+             if (appliedIds.length) {
+               await updateReviewStatus(appliedIds, 'edited');
+             }
+             if (rejectTargets.length) {
+               await updateReviewStatus(rejectTargets.map((r) => r.item.image_id), 'rejected');
+             }
+           } catch (err) {
+             alert(`Status update failed: ${err.message}`);
+             applyBtn.disabled = false;
+             updateSummary();
+             return;
+           }
+
+           if (applyErrors.length) {
+             const msgs = applyErrors.map((err) => err.error?.message || 'Unknown error');
+             alert(`Applied ${appliedIds.length}/${applyTargets.length} touchup(s).\n\nErrors:\n${msgs.slice(0, 5).join('\n')}`);
+           }
+
+           cleanup();
+           resolve();
+         }
+
+          function handleKeydown(e) {
+            const key = e.key.toLowerCase();
+            const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : '';
+            const isTypingTarget = tag === 'input' || tag === 'textarea' || e.target?.isContentEditable;
+            if (key === 'escape') {
+              cleanup();
+              resolve();
+            } else if (key === 'enter') {
+              e.preventDefault();
+              applyDecisions();
+            } else if (isTypingTarget) {
+              return;
+            } else if (key === 'arrowdown') {
+              e.preventDefault();
+              focusRow(focusedIdx + 1);
+            } else if (key === 'arrowup') {
+              e.preventDefault();
+              focusRow(focusedIdx - 1);
+            } else if (e.shiftKey && key === 'a') {
+              setAll('apply_touchup');
+            } else if (e.shiftKey && key === 'o') {
+              setAll('keep_original');
+           } else if (e.shiftKey && key === 'x') {
+             setAll('reject_image');
+            } else if (e.shiftKey && key === 'g') {
+              e.preventDefault();
+              regenerateAtIndex(focusedIdx);
+            } else if (key === 'a') {
+              states[focusedIdx] = 'apply_touchup';
+              refreshRows();
+            } else if (key === 'o') {
+              states[focusedIdx] = 'keep_original';
+              refreshRows();
+            } else if (key === 'x') {
+              states[focusedIdx] = 'reject_image';
+              refreshRows();
+            }
+          }
+
+         overlay.querySelector('.modal-close').addEventListener('click', () => {
+           cleanup();
+           resolve();
+         });
+         overlay.querySelector('#batchCancel').addEventListener('click', () => {
+           cleanup();
+           resolve();
+         });
+         overlay.querySelector('#batchAllApply').addEventListener('click', () => setAll('apply_touchup'));
+         overlay.querySelector('#batchAllKeep').addEventListener('click', () => setAll('keep_original'));
+         overlay.querySelector('#batchAllReject').addEventListener('click', () => setAll('reject_image'));
+         overlay.querySelector('#batchRegenerateFocused').addEventListener('click', () => regenerateAtIndex(focusedIdx));
+         overlay.querySelector('#batchApply').addEventListener('click', applyDecisions);
+         document.addEventListener('keydown', handleKeydown);
+
+         attachDecisionListeners();
+         updateSummary();
+         focusRow(0);
+       });
+     }
+
+     // Custom Preset Management Functions
+      async function loadCustomPresetsList() {
+        try {
+          const res = await fetch('/api/synth/custom-presets');
+          const data = await res.json();
+          const managementSelect = document.getElementById('customPresetsSelect');
+          const previousManagementValue = managementSelect.value;
+          const previousPromptValue = touchupPromptSelect.value;
+
+          customPresetPromptMap.clear();
+
+          managementSelect.innerHTML = '<option value="">Custom Presets</option>';
+
+          touchupPromptSelect.innerHTML = `
+            <option value="mode:preset">Preset: Improve blending</option>
+            <option value="mode:fix_direction">Preset: Fix vehicle direction</option>
+            <option value="mode:fix_lighting">Preset: Fix lighting/shadows</option>
+            <option value="custom:input">Custom prompt (text input)</option>
+          `;
+
+          for (const preset of data.presets || []) {
+            customPresetPromptMap.set(preset.name, preset.prompt);
+
+            const managementOption = document.createElement('option');
+            managementOption.value = preset.name;
+            managementOption.textContent = preset.name;
+            managementSelect.appendChild(managementOption);
+
+            const encodedName = encodeURIComponent(preset.name);
+            const touchupOption = document.createElement('option');
+            touchupOption.value = `custom:preset:${encodedName}`;
+            touchupOption.textContent = `Saved preset: ${preset.name}`;
+            touchupPromptSelect.appendChild(touchupOption);
+          }
+
+          if (previousManagementValue) {
+            managementSelect.value = previousManagementValue;
+          }
+          if ([...touchupPromptSelect.options].some((opt) => opt.value === previousPromptValue)) {
+            touchupPromptSelect.value = previousPromptValue;
+          }
+        } catch (error) {
+          console.error('Failed to load custom presets:', error);
+        }
+      }
+     
+     async function saveCustomPreset() {
+       const name = document.getElementById('newPresetName').value.trim();
+       const prompt = document.getElementById('newPresetPrompt').value.trim();
+       
+       if (!name || !prompt) {
+         alert('Please enter both preset name and prompt');
+         return;
+       }
+       
+       try {
+         const res = await fetch('/api/synth/custom-presets', {
+           method: 'POST',
+           headers: { 'Content-Type': 'application/json' },
+           body: JSON.stringify({ name, prompt })
+         });
+         
+         if (res.ok) {
+           alert('Preset saved successfully!');
+           document.getElementById('newPresetName').value = '';
+           document.getElementById('newPresetPrompt').value = '';
+           loadCustomPresetsList();
+         } else {
+           const errorData = await res.json();
+           alert('Failed to save preset: ' + (errorData.detail || 'Unknown error'));
+         }
+       } catch (error) {
+         alert('Error saving preset: ' + error.message);
+       }
+     }
+     
+     async function loadCustomPreset() {
+       const select = document.getElementById('customPresetsSelect');
+       const presetName = select.value;
+       
+       if (!presetName) {
+         alert('Please select a preset to load');
+         return;
+       }
+       
+       try {
+         const res = await fetch(`/api/synth/custom-presets/${encodeURIComponent(presetName)}`);
+         const data = await res.json();
+         
+         document.getElementById('newPresetName').value = data.name;
+         document.getElementById('newPresetPrompt').value = data.prompt;
+         customPrompt.value = data.prompt;
+         
+         alert('Preset loaded into custom prompt field');
+       } catch (error) {
+         alert('Error loading preset: ' + error.message);
+       }
+     }
+     
+     async function deleteCustomPreset() {
+       const select = document.getElementById('customPresetsSelect');
+       const presetName = select.value;
+       
+       if (!presetName) {
+         alert('Please select a preset to delete');
+         return;
+       }
+       
+       if (!confirm(`Are you sure you want to delete the preset "${presetName}"?`)) {
+         return;
+       }
+       
+       try {
+         const res = await fetch(`/api/synth/custom-presets/${encodeURIComponent(presetName)}`, {
+           method: 'DELETE'
+         });
+         
+         if (res.ok) {
+           alert('Preset deleted successfully!');
+           loadCustomPresetsList();
+           document.getElementById('newPresetName').value = '';
+           document.getElementById('newPresetPrompt').value = '';
+         } else {
+           const errorData = await res.json();
+           alert('Failed to delete preset: ' + (errorData.detail || 'Unknown error'));
+         }
+       } catch (error) {
+         alert('Error deleting preset: ' + error.message);
+       }
+     }
+
+     document.getElementById('reloadBtn').addEventListener('click', loadItems);
+     document.getElementById('approveBtn').addEventListener('click', () => bulkStatus('approved'));
+     document.getElementById('rejectBtn').addEventListener('click', () => bulkStatus('rejected'));
+     document.getElementById('editedBtn').addEventListener('click', () => bulkStatus('edited'));
+      document.getElementById('regenerateBtn').addEventListener('click', touchup);
+      document.getElementById('zoomInBtn').addEventListener('click', () => changeCardScale(0.2));
+      document.getElementById('zoomOutBtn').addEventListener('click', () => changeCardScale(-0.2));
+      document.getElementById('savePresetBtn').addEventListener('click', saveCustomPreset);
+      document.getElementById('loadPresetBtn').addEventListener('click', loadCustomPreset);
+      document.getElementById('deletePresetBtn').addEventListener('click', deleteCustomPreset);
+      touchupPromptSelect.addEventListener('change', () => {
+        const value = touchupPromptSelect.value || '';
+        if (value.startsWith('custom:preset:')) {
+          const name = decodeURIComponent(value.slice('custom:preset:'.length));
+          const promptText = customPresetPromptMap.get(name) || '';
+          customPrompt.value = promptText;
+        }
+      });
+      bucketSel.addEventListener('change', loadItems);
+      statusSel.addEventListener('change', loadItems);
+     
+     // Load custom presets on startup
+      loadCustomPresetsList();
+      initializeTouchupProviders();
+      refreshCostSummary();
+
+    applyCardScale();
+    loadItems();
+  </script>
+</body>
+</html>

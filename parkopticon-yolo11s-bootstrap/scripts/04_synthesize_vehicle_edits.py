@@ -1,25 +1,25 @@
 #!/usr/bin/env python3
 """
-Synthesize vehicle edits using Gemini image editing API.
+Synthesize vehicle edits using the Grok image editing API.
 Creates random_vehicle and enforcement_vehicle variants of empty frames.
 Uses reference images for enforcement classes.
-
-Future enhancement: Will add lookalike_negative class (Class 4) for hard negative examples
-that look like enforcement but are NOT enforcement vehicles. See ONBOARDING.md for details.
 """
 
 import argparse
 import csv
+import json
 import logging
 import os
 import random
 import sys
 import threading
+import time
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from io import BytesIO
 from pathlib import Path
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Union
 
 from dotenv import load_dotenv
 from google import genai
@@ -31,6 +31,11 @@ from tqdm import tqdm
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from utils.preprocessing import resize_cover_center_crop
+from utils.grok_image_api import (
+    GrokImageAPIError,
+    encode_image_to_base64,
+    generate_image,
+)
 
 
 load_dotenv()
@@ -46,6 +51,20 @@ ENFORCEMENT_DATASET_DIR = PROJECT_ROOT / "enforcement-dataset"
 POLICE_OLD_DATASET_DIR = PROJECT_ROOT / "police-dataset-old"
 POLICE_NEW_DATASET_DIR = PROJECT_ROOT / "police-dataset-new"
 
+# BK|# Enforcement subtype models
+# BK|ENFORCEMENT_MODELS = [
+# BK|    "hyundai_kona_electric_1st_gen_2019",
+# BK|    "toyota_yaris_xp_150_facelift_2020",
+# BK|    "ford_fusion_hybrid_2015",
+# BK|    "hyundai_ioniq_1st_gen_2018",
+# BK|    "hyundai_ioniq_1st_gen_facelift_2021",
+# BK|    "toyota_rav4_hybrid_4th_gen_facelift_2017",
+# BK|    "ford_escape_4th_gen_2021",
+# BK|    "ford_explorer_5th_gen_2017",
+# BK|    "ford_explorer_6th_gen_2021",
+# BK|]
+
+
 # Constraints (shared with synth_ui)
 STRICT_SIZE_CONSTRAINT = """Critical output constraint: return an image with exactly the same width and height as the input street scene. Do not crop, resize, pad, rotate, or change aspect ratio."""
 
@@ -56,6 +75,23 @@ SCENE_LOCK_CONSTRAINT = """Scene integrity constraint: preserve the original sce
 LOCAL_EDIT_ONLY_CONSTRAINT = """Local-edit-only constraint: modify only the minimal pixel region required to insert the new vehicle, plus immediate physically consistent contact shadow/occlusion near that vehicle. All other pixels should remain visually unchanged. If constraints cannot be satisfied, return the original scene unchanged."""
 
 SHADOW_CONSISTENCY_CONSTRAINT = """Shadow consistency constraint: shadow intensity and sharpness must match the scene's apparent lighting conditions. Bright sunny scenes should cast sharp, dark shadows. Overcast, cloudy, or diffuse lighting scenes should have soft, faint, or no visible shadows. Do not add hard, distinct shadows when the scene appears overcast or has soft ambient lighting."""
+
+PLAUSIBLE_PLACEMENT_CONSTRAINT = """Plausible placement constraint: the vehicle must be placed on a valid, drivable asphalt or concrete roadway surface. Do not place the vehicle on sidewalks, in buildings, on grass, or floating in mid-air. It must be positioned naturally within the lane markers as if actively driving in traffic. If the target street scene does not contain any visible, drivable roadway (e.g., only sidewalks, grass, or water are visible), you MUST refuse the request by returning the exact text "REFUSE: NO ROAD VISIBLE" and no image."""
+
+# New constraint: Google Street View context
+STREET_VIEW_CONTEXT = """CRITICAL CONTEXT: This is a Google Street View image. The camera that captured this photo has specific characteristics: fish-eye distortion at edges, particular color grading, specific perspective vanishing point, and metadata embedded in the image style. The vehicle you insert MUST look exactly like it was captured by the same Street View camera - as if it were actually there when the panorama was taken. Match the Street View look precisely."""
+
+# New constraint: Natural placement (avoid "advertisement" center placement)
+NATURAL_PLACEMENT_CONSTRAINT = """Natural placement constraint: place the vehicle at a natural driving position within the lane, NOT centered like an advertisement or product shot. The vehicle should be positioned where a real car would naturally appear - typically offset to one side following lane position, at a realistic depth within the scene. Avoid placing vehicles dead-center of the frame unless the lane geometry truly warrants it."""
+
+# New constraint: Prevent perspective tilt issues (the ~30 degree tilt problem)
+VEHICLE_ORIENTATION_CONSTRAINT = """Vehicle orientation precision: the vehicle's orientation must match the road's perspective exactly. If the road appears straight to the horizon with no curve, the vehicle must be perfectly straight with NO tilt angle - do not tilt it ~30 degrees. The vehicle should align with the road's vanishing point and lane markings. When viewing from the front or rear (not from the side), the vehicle should appear rectangular, not angled. The vehicle must follow the exact perspective lines of the road and lane markings."""
+
+# New constraint: Seamless blending
+SEAMLESS_BLEND_CONSTRAINT = """Seamless blending constraint: the inserted vehicle must be seamlessly integrated into the scene with no visible edges, seams, or "placed in" appearance. Match the exact color temperature, white balance, contrast, grain, and post-processing of the original Street View image. The vehicle should have the same fish-eye distortion characteristics at the edges if applicable. No harsh outlines, color discontinuities, or obvious insertion artifacts."""
+
+# New constraint: Shadow and reflection accuracy
+SHADOW_ACCURACY_CONSTRAINT = """Shadow and reflection accuracy: ensure the vehicle casts shadows that are consistent with existing shadows in the scene. If trees or buildings cast long shadows, the vehicle must too. If the scene has no visible shadows (overcast), the vehicle should have minimal or no shadow. The vehicle's shadow should fall on the road surface naturally, matching the direction of existing shadows. Ground reflections on wet pavement must be consistent with the vehicle and lighting."""
 
 REALISTIC_VEHICLE_COLORS = [
     "white",
@@ -85,18 +121,31 @@ REALISTIC_VEHICLE_BODY_TYPES = [
     "wagon",
 ]
 
+# Distance/Scale definitions
+DISTANCE_OPTIONS = [
+    "very close (foreground, large size)",
+    "medium distance (midground, average size)",
+    "far away (background, small size)",
+]
 
-def build_random_vehicle_prompt(image_id: str, seed: int) -> tuple[str, str, str]:
+
+def build_random_vehicle_prompt(
+    image_id: str,
+    seed: int,
+    distance: str = "medium distance (midground, average size)",
+) -> tuple[str, str, str]:
     rng = random.Random(f"{seed}:{image_id}")
     color = rng.choice(REALISTIC_VEHICLE_COLORS)
     body_type = rng.choice(REALISTIC_VEHICLE_BODY_TYPES)
 
     prompt = (
         "Change only what is necessary. Keep camera perspective, lighting, shadows, color grading identical. "
-        f"Add exactly ONE {color} {body_type} on the roadway (not parked), medium size, clearly visible. "
+        f"Add exactly ONE {color} {body_type} on the roadway (not parked), {distance}, clearly visible. "
         "It must look like a normal civilian vehicle with no emergency lightbar, no police markings, and no municipal enforcement markings. "
         "Avoid changing signs, buildings, or sky. No global style shifts. "
         + SCENE_LOCK_CONSTRAINT
+        + " "
+        + PLAUSIBLE_PLACEMENT_CONSTRAINT
         + " "
         + LOCAL_EDIT_ONLY_CONSTRAINT
         + " "
@@ -105,6 +154,16 @@ def build_random_vehicle_prompt(image_id: str, seed: int) -> tuple[str, str, str
         + SHADOW_CONSISTENCY_CONSTRAINT
         + " "
         + STRICT_SIZE_CONSTRAINT
+        + " "
+        + STREET_VIEW_CONTEXT
+        + " "
+        + NATURAL_PLACEMENT_CONSTRAINT
+        + " "
+        + VEHICLE_ORIENTATION_CONSTRAINT
+        + " "
+        + SEAMLESS_BLEND_CONSTRAINT
+        + " "
+        + SHADOW_ACCURACY_CONSTRAINT
     )
     return prompt, color, body_type
 
@@ -113,8 +172,12 @@ def build_random_vehicle_prompt(image_id: str, seed: int) -> tuple[str, str, str
 ENFORCEMENT_PROMPT_WITH_REF = (
     "You are given two images: first is the target street scene, second is a reference enforcement vehicle. "
     "Insert one enforcement vehicle into the target scene, matching the reference style while preserving scene realism. "
+    "Place the vehicle at {distance}. "
+    "{spatial_instruction}"
     "Do not introduce unrelated scene changes. "
     + SCENE_LOCK_CONSTRAINT
+    + " "
+    + PLAUSIBLE_PLACEMENT_CONSTRAINT
     + " "
     + LOCAL_EDIT_ONLY_CONSTRAINT
     + " "
@@ -123,14 +186,28 @@ ENFORCEMENT_PROMPT_WITH_REF = (
     + SHADOW_CONSISTENCY_CONSTRAINT
     + " "
     + STRICT_SIZE_CONSTRAINT
+    + " "
+    + STREET_VIEW_CONTEXT
+    + " "
+    + NATURAL_PLACEMENT_CONSTRAINT
+    + " "
+    + VEHICLE_ORIENTATION_CONSTRAINT
+    + " "
+    + SEAMLESS_BLEND_CONSTRAINT
+    + " "
+    + SHADOW_ACCURACY_CONSTRAINT
 )
 
 # Prompts for police_old WITH reference image
 POLICE_OLD_PROMPT_WITH_REF = (
     "You are given two images: first is the target street scene, second is a reference Ottawa Police cruiser with OLD livery. "
     "Insert one police cruiser matching the reference style into the target scene, preserving scene realism. "
+    "Place the vehicle at {distance}. "
+    "{spatial_instruction}"
     "Do not introduce unrelated scene changes. "
     + SCENE_LOCK_CONSTRAINT
+    + " "
+    + PLAUSIBLE_PLACEMENT_CONSTRAINT
     + " "
     + LOCAL_EDIT_ONLY_CONSTRAINT
     + " "
@@ -139,14 +216,28 @@ POLICE_OLD_PROMPT_WITH_REF = (
     + SHADOW_CONSISTENCY_CONSTRAINT
     + " "
     + STRICT_SIZE_CONSTRAINT
+    + " "
+    + STREET_VIEW_CONTEXT
+    + " "
+    + NATURAL_PLACEMENT_CONSTRAINT
+    + " "
+    + VEHICLE_ORIENTATION_CONSTRAINT
+    + " "
+    + SEAMLESS_BLEND_CONSTRAINT
+    + " "
+    + SHADOW_ACCURACY_CONSTRAINT
 )
 
 # Prompts for police_new WITH reference image
 POLICE_NEW_PROMPT_WITH_REF = (
     "You are given two images: first is the target street scene, second is a reference Ottawa Police cruiser with NEW livery. "
     "Insert one police cruiser matching the reference style into the target scene, preserving scene realism. "
+    "Place the vehicle at {distance}. "
+    "{spatial_instruction}"
     "Do not introduce unrelated scene changes. "
     + SCENE_LOCK_CONSTRAINT
+    + " "
+    + PLAUSIBLE_PLACEMENT_CONSTRAINT
     + " "
     + LOCAL_EDIT_ONLY_CONSTRAINT
     + " "
@@ -155,6 +246,16 @@ POLICE_NEW_PROMPT_WITH_REF = (
     + SHADOW_CONSISTENCY_CONSTRAINT
     + " "
     + STRICT_SIZE_CONSTRAINT
+    + " "
+    + STREET_VIEW_CONTEXT
+    + " "
+    + NATURAL_PLACEMENT_CONSTRAINT
+    + " "
+    + VEHICLE_ORIENTATION_CONSTRAINT
+    + " "
+    + SEAMLESS_BLEND_CONSTRAINT
+    + " "
+    + SHADOW_ACCURACY_CONSTRAINT
 )
 
 
@@ -170,15 +271,74 @@ def load_manifest(manifest_path: Path) -> list:
 def save_manifest(manifest: list, manifest_path: Path):
     if not manifest:
         return
-    fieldnames = list(manifest[0].keys())
+    # Union of all keys across all rows so new columns added by synthetic rows
+    # (e.g. variant_index, review_bucket) don't cause DictWriter to raise.
+    seen: dict = {}
+    for row in manifest:
+        for k in row.keys():
+            if k not in seen:
+                seen[k] = None
+    fieldnames = list(seen.keys())
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     with open(manifest_path, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(manifest)
 
 
-def load_reference_images(dataset_dir: Path) -> List[Path]:
+# XB|
+# XB|# Cardinal angle suffixes for grouping
+# Cardinal angle suffixes for grouping and matching
+CARDINAL_ANGLES = ["N", "W", "S", "E"]  # Front, Left, Rear, Right
+
+
+def load_reference_images(dataset_dir: Path) -> dict[str, list[Path]]:
+    """Load reference images grouped by vehicle ID with cardinal angles."""
+    if not dataset_dir.exists():
+        logger.warning(f"Reference directory not found: {dataset_dir}")
+        return {}
+
+    extensions = {".jpg", ".jpeg", ".png", ".webp"}
+    groups: dict[str, list[Path]] = {}
+    for ext in extensions:
+        for image in dataset_dir.glob(f"**/*{ext}"):
+            stem = image.stem
+            base_id = stem
+            for angle in CARDINAL_ANGLES:
+                if stem.endswith(f"_{angle}"):
+                    base_id = stem[: -len(f"_{angle}")]
+                    break
+            if base_id not in groups:
+                groups[base_id] = []
+            groups[base_id].append(image)
+
+    # Filter groups that don't have all 4 cardinal angles if needed, or just keep them all
+    return groups
+    # RX|    """Load reference images grouped by vehicle ID with cardinal angles."""
+    # XS|    if not dataset_dir.exists():
+    # NW|        logger.warning(f"Reference directory not found: {dataset_dir}")
+    # YJ|        return {}
+    # PZ|
+    # VX|    extensions = {'.jpg', '.jpeg', '.png', '.webp'}
+    # BZ|    groups: dict[str, list[Path]] = {}
+    # RW|    for ext in extensions:
+    # VM|        for image in dataset_dir.glob(f'*{ext}'):
+    # VM|            for image in dataset_dir.glob(f'*{ext.upper()}'):
+    # RP|                stem = image.stem
+    # RP|                base_id = stem
+    # RP|                for angle in CARDINAL_ANGLES:
+    # RP|                    if stem.endswith(angle):
+    # RP|                        base_id = stem[:-len(angle)]
+    # RP|                        break
+    # RP|                if base_id not in groups:
+    # RP|                    groups[base_id] = []
+    # RP|                groups[base_id].append(image)
+    # RP|
+    # KJ|    # Sort angles within groups if possible
+    # RP|    for base_id in groups:
+    # RP|        groups[base_id] = sorted(groups[base_id])
+    # KJ|    return groups
+
     """Load all reference images from a directory."""
     if not dataset_dir.exists():
         logger.warning(f"Reference directory not found: {dataset_dir}")
@@ -194,67 +354,201 @@ def load_reference_images(dataset_dir: Path) -> List[Path]:
 
 
 def synthesize_image(
-    client: genai.Client,
+    grok_api_key: str,
     image_path: Path,
     prompt: str,
-    model: str = "models/gemini-3-pro-image-preview",
-    reference_path: Optional[Path] = None,
+    model: str = "grok-imagine-image",
+    reference_path: Optional[
+        Union[Path, List[Path]]
+    ] = None,  # Can be a single Path or a list of Paths
+    rate_limiter: Optional["RequestRateLimiter"] = None,
 ) -> Optional[bytes]:
     try:
-        # Load background image
-        background_image = Image.open(image_path)
+        with image_path.open("rb") as handle:
+            image_inputs: List[str] = [encode_image_to_base64(handle.read())]
 
-        # Build contents list
-        if reference_path and reference_path.exists():
-            # With reference image
-            reference_image = Image.open(reference_path)
-            contents = [prompt, background_image, reference_image]
-        else:
-            # No reference image
-            contents = [prompt, background_image]
+        if reference_path:
+            if isinstance(reference_path, list):
+                # Multiple reference images (cardinal views)
+                for ref in reference_path:
+                    if ref.exists():
+                        with ref.open("rb") as handle:
+                            image_inputs.append(encode_image_to_base64(handle.read()))
+            elif reference_path.exists():
+                # Single reference image
+                with reference_path.open("rb") as handle:
+                    image_inputs.append(encode_image_to_base64(handle.read()))
 
-        response = client.models.generate_content(
+        with Image.open(image_path) as source_image:
+            expected_size = source_image.size
+
+        if rate_limiter is not None:
+            rate_limiter.acquire()
+
+        data = generate_image(
+            api_key=grok_api_key,
             model=model,
-            contents=contents,
-            config=types.GenerateContentConfig(
-                response_modalities=["image"],
-            ),
+            prompt=prompt,
+            input_images=image_inputs,
         )
+        with Image.open(BytesIO(data)) as generated_image:
+            generated_size = generated_image.size
+        if generated_size != expected_size:
+            try:
+                data = resize_cover_center_crop(data, expected_size)
+                logger.warning(
+                    "Adjusted generated image size from %s to %s via cover-resize + center-crop",
+                    generated_size,
+                    expected_size,
+                )
+            except Exception as exc:
+                logger.error(
+                    "Failed to adjust generated image size: expected=%s got=%s error=%s",
+                    expected_size,
+                    generated_size,
+                    exc,
+                )
+                return None
+        return data
 
-        if hasattr(response, "candidates") and response.candidates:
-            first_candidate = response.candidates[0]
-            content = getattr(first_candidate, "content", None)
-            parts = getattr(content, "parts", None) or []
-            for part in parts:
-                if hasattr(part, "inline_data") and part.inline_data:
-                    data = part.inline_data.data
-                    with Image.open(image_path) as source_image:
-                        expected_size = source_image.size
-                    with Image.open(BytesIO(data)) as generated_image:
-                        generated_size = generated_image.size
-                    if generated_size != expected_size:
-                        try:
-                            data = resize_cover_center_crop(data, expected_size)
-                            logger.warning(
-                                "Adjusted generated image size from %s to %s via cover-resize + center-crop",
-                                generated_size,
-                                expected_size,
-                            )
-                        except Exception as exc:
-                            logger.error(
-                                "Failed to adjust generated image size: expected=%s got=%s error=%s",
-                                expected_size,
-                                generated_size,
-                                exc,
-                            )
-                            return None
-                    return data
-
+    except GrokImageAPIError as e:
+        logger.error(f"Grok synthesis failed: {e}")
         return None
 
     except Exception as e:
         logger.error(f"Synthesis failed: {e}")
         return None
+
+
+PLACEMENT_PLAN_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "can_insert": {"type": "boolean"},
+        "confidence_low": {"type": "number", "minimum": 0, "maximum": 1},
+        "confidence_high": {"type": "number", "minimum": 0, "maximum": 1},
+        "distance_preference": {
+            "type": "string",
+            "enum": [
+                "very close (foreground, large size)",
+                "medium distance (midground, average size)",
+                "far away (background, small size)",
+            ],
+        },
+        "guidance": {"type": "string"},
+    },
+    "required": [
+        "can_insert",
+        "confidence_low",
+        "confidence_high",
+        "distance_preference",
+        "guidance",
+    ],
+}
+
+
+def _safe_conf_interval(low: float, high: float) -> tuple[float, float]:
+    low_v = max(0.0, min(1.0, float(low)))
+    high_v = max(0.0, min(1.0, float(high)))
+    if high_v < low_v:
+        low_v, high_v = high_v, low_v
+    return low_v, high_v
+
+
+class RequestRateLimiter:
+    def __init__(self, max_requests: int, period_seconds: float):
+        self.max_requests = max_requests
+        self.period_seconds = period_seconds
+        self._timestamps: deque[float] = deque()
+        self._lock = threading.Lock()
+
+    def acquire(self) -> None:
+        while True:
+            wait_for = 0.0
+            with self._lock:
+                now = time.monotonic()
+                while (
+                    self._timestamps
+                    and now - self._timestamps[0] >= self.period_seconds
+                ):
+                    self._timestamps.popleft()
+
+                if len(self._timestamps) < self.max_requests:
+                    self._timestamps.append(now)
+                    return
+
+                wait_for = self.period_seconds - (now - self._timestamps[0])
+
+            if wait_for > 0:
+                time.sleep(wait_for)
+
+
+def plan_vehicle_placement(
+    client: genai.Client,
+    model_id: str,
+    image_path: Path,
+    max_retries: int,
+    rate_limiter: RequestRateLimiter | None = None,
+) -> dict:
+    prompt = (
+        "You are planning a synthetic vehicle insertion for a Google Street View image. "
+        "This is a Street View panorama capture - the vehicle you add must look exactly as if it was captured by the Street View camera at that moment. "
+        "Return ONLY JSON schema-compliant output. "
+        "Assess if a realistic insertion is possible, prefer farther placement when plausible, "
+        "and provide concise guidance about lighting, shadows, perspective, vehicle direction, and placement position. "
+        "CRITICAL: Consider that vehicle orientation must match road perspective exactly - avoid awkward angles. "
+        "Consider natural lane position - avoid centering the vehicle like an advertisement."
+    )
+
+    last_error = ""
+    for attempt in range(1, max_retries + 1):
+        try:
+            with image_path.open("rb") as handle:
+                image_bytes = handle.read()
+
+            if rate_limiter is not None:
+                rate_limiter.acquire()
+
+            response = client.models.generate_content(
+                model=model_id,
+                contents=[
+                    types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg"),
+                    prompt,
+                ],
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=PLACEMENT_PLAN_SCHEMA,
+                    temperature=0.1,
+                ),
+            )
+            payload = json.loads((response.text or "").strip())
+            low, high = _safe_conf_interval(
+                payload["confidence_low"], payload["confidence_high"]
+            )
+            return {
+                "ok": True,
+                "can_insert": bool(payload["can_insert"]),
+                "confidence_low": low,
+                "confidence_high": high,
+                "distance_preference": payload["distance_preference"],
+                "guidance": str(payload.get("guidance", "")).strip(),
+            }
+        except Exception as exc:
+            last_error = str(exc)
+            logger.warning(
+                "Placement planner attempt %s/%s failed for %s: %s",
+                attempt,
+                max_retries,
+                image_path.name,
+                exc,
+            )
+    return {
+        "ok": False,
+        "can_insert": False,
+        "confidence_low": 0.0,
+        "confidence_high": 0.0,
+        "distance_preference": "far away (background, small size)",
+        "guidance": f"planner_failed: {last_error}",
+    }
 
 
 # Thread-safe lock for manifest updates
@@ -263,6 +557,7 @@ manifest_lock = threading.Lock()
 
 def process_image(
     client: genai.Client,
+    grok_api_key: str,
     img_id: str,
     parent_row: dict,
     out_dir: Path,
@@ -271,28 +566,75 @@ def process_image(
     reference_images: dict,
     model: str,
     seed: int,
+    hard_negative: bool = False,
+    variant_index: int = 0,
+    planner_model: str = "gemini-3.1-pro-preview",
+    planner_retries: int = 3,
+    planner_min_confidence: float = 0.7,
+    run_dir: Optional[Path] = None,
+    rate_limiter: RequestRateLimiter | None = None,
 ) -> Tuple[int, list]:
     """Process a single image and return (count, new_rows)."""
     new_rows = []
     count = 0
 
-    parent_path = Path(parent_row.get("file_path", ""))
+    rng = random.Random(f"{seed}:{img_id}")
+    raw_path = parent_row.get("file_path", "")
+    if raw_path:
+        parent_path = Path(raw_path)
+        if not parent_path.is_absolute() and run_dir is not None:
+            parent_path = run_dir / parent_path
+    else:
+        return (0, [])
     if not parent_path.exists():
         return (0, [])
+    parent_box_count = int(parent_row.get("num_boxes_autogen", "0") or "0")
+    has_existing_vehicle = parent_box_count > 0
+
+    plan = plan_vehicle_placement(
+        client,
+        planner_model,
+        parent_path,
+        max_retries=max(1, planner_retries),
+        rate_limiter=rate_limiter,
+    )
+    if not plan["can_insert"] or plan["confidence_high"] < planner_min_confidence:
+        return (0, [])
+
+    # Determine distance/scale for this batch
+    distance = plan.get("distance_preference") or rng.choice(DISTANCE_OPTIONS)
+
+    spatial_instruction = ""
+    if hard_negative:
+        spatial_instruction = "Crucially, place this vehicle in close proximity to the existing vehicle(s) in the scene, as if they are driving or parked near each other. "
 
     # Generate random_vehicle (no reference needed)
-    synth_id_random = generate_image_id(img_id, "random_vehicle")
+    random_edit_suffix = (
+        "random_vehicle" if variant_index == 0 else f"random_vehicle_v{variant_index}"
+    )
+    synth_id_random = generate_image_id(img_id, random_edit_suffix)
     if synth_id_random not in existing_ids:
         random_vehicle_prompt, vehicle_color, vehicle_body_type = (
-            build_random_vehicle_prompt(img_id, seed)
+            build_random_vehicle_prompt(img_id, seed, distance=distance)
         )
+        if plan.get("guidance"):
+            random_vehicle_prompt = (
+                f"{random_vehicle_prompt} Additional guidance: {plan['guidance']}"
+            )
         logger.info(
-            "Creating random_vehicle for %s with style: %s %s",
+            "Creating random_vehicle for %s with style: %s %s at %s",
             img_id,
             vehicle_color,
             vehicle_body_type,
+            distance,
         )
-        img_data = synthesize_image(client, parent_path, random_vehicle_prompt, model)
+        img_data = synthesize_image(
+            grok_api_key,
+            parent_path,
+            random_vehicle_prompt,
+            model,
+            rate_limiter=rate_limiter,
+        )
 
         if img_data:
             out_path = out_dir / "random_vehicle" / f"{synth_id_random}.jpg"
@@ -321,6 +663,8 @@ def process_image(
                     "num_boxes_autogen": "0",
                     "needs_review": "1",
                     "review_status": "todo",
+                    "review_bucket": "EV-SNV" if has_existing_vehicle else "SVO-NV",
+                    "variant_index": str(variant_index),
                     "created_at": datetime.now().isoformat(),
                 }
             )
@@ -333,20 +677,44 @@ def process_image(
             ("police_old", POLICE_OLD_PROMPT_WITH_REF, "police_old"),
             ("police_new", POLICE_NEW_PROMPT_WITH_REF, "police_new"),
         ]:
-            synth_id_enf = generate_image_id(img_id, edit_type)
+            enf_suffix = (
+                edit_type if variant_index == 0 else f"{edit_type}_v{variant_index}"
+            )
+            synth_id_enf = generate_image_id(img_id, enf_suffix)
             if synth_id_enf in existing_ids:
                 continue
 
-            # Get a random reference image for this class
-            ref_images = reference_images.get(reference_key, [])
-            ref_path = random.choice(ref_images) if ref_images else None
+            # Get reference images group for this class (grouped by model)
+            ref_groups = reference_images.get(reference_key, {})
+            if not ref_groups:
+                continue
+
+            # Pick a random model group
+            model_id = rng.choice(list(ref_groups.keys()))
+            group_refs = ref_groups[model_id]
+
+            # Format enforcement prompt with distance and spatial instructions
+            formatted_prompt = prompt.format(
+                distance=distance, spatial_instruction=spatial_instruction
+            )
+            if plan.get("guidance"):
+                formatted_prompt = (
+                    f"{formatted_prompt} Additional guidance: {plan['guidance']}"
+                )
 
             logger.info(
-                f"Creating {edit_type} for {img_id}"
-                + (f" with reference: {ref_path.name}" if ref_path else "")
+                f"Creating {edit_type} for {img_id} at {distance} using model: {model_id} ({len(group_refs)} refs)"
+                + (" (HARD NEGATIVE)" if hard_negative else "")
             )
+
+            # Call synthesize_image with the list of references for this model
             img_data = synthesize_image(
-                client, parent_path, prompt, model, reference_path=ref_path
+                grok_api_key,
+                parent_path,
+                formatted_prompt,
+                model,
+                reference_path=group_refs,
+                rate_limiter=rate_limiter,
             )
 
             if img_data:
@@ -376,26 +744,12 @@ def process_image(
                         "num_boxes_autogen": "0",
                         "needs_review": "1",
                         "review_status": "todo",
+                        "review_bucket": "EV-SE" if has_existing_vehicle else "SVO-E",
+                        "variant_index": str(variant_index),
                         "created_at": datetime.now().isoformat(),
                     }
                 )
                 count += 1
-
-        # TODO: Future enhancement - Generate lookalike_negative class
-        # Class 4: lookalike_negative includes vehicles that visually resemble enforcement
-        # but are NOT enforcement vehicles. These hard negatives improve model discriminative power.
-
-        # Example future prompts for lookalike_negative synthesis:
-        # - 'Add one black vehicle with white door panels (resembling two-tone paint, not police livery)'
-        # - 'Add one white vehicle with blue accent stripes (like a taxi, not police markings)'
-        # - 'Add one dark vehicle with custom paint but no police insignia or emergency equipment'
-
-        # Implementation should:
-        # 1. Add lookalike_negative reference images directory (if using styled references)
-        # 2. Define LOOKALIKE_NEGATIVE_PROMPT_WITH_REF prompt with safety constraints
-        # 3. Add ('lookalike_negative', LOOKALIKE_NEGATIVE_PROMPT_WITH_REF, 'lookalike_negative') to edit_type loop
-        # 4. Create output directory: out_dir / 'lookalike_negative'
-        # 5. Update expected_inserted_class to 'lookalike_negative' in manifest row
 
     return (count, new_rows)
 
@@ -405,12 +759,17 @@ def main():
         description="Synthesize vehicle edits with reference images"
     )
     parser.add_argument(
+        "--run-dir",
+        default=".",
+        help="Run directory root (all relative paths resolve against this)",
+    )
+    parser.add_argument(
         "--manifest", "-m", default="manifests/images.csv", help="Input manifest"
     )
     parser.add_argument(
         "--empty-list",
         "-e",
-        default="lists/empty_candidates.txt",
+        default="lists/valid_road_candidates.txt",
         help="Empty candidates file",
     )
     parser.add_argument(
@@ -421,33 +780,126 @@ def main():
     parser.add_argument(
         "--out-dir", "-o", default="data/images_synth", help="Output directory"
     )
-    parser.add_argument("--api-key", "-k", default=None, help="Gemini API key")
     parser.add_argument(
-        "--model", default="models/gemini-3-pro-image-preview", help="Gemini model"
+        "--api-key",
+        "-k",
+        default=None,
+        help="Gemini API key for planner model",
+    )
+    parser.add_argument(
+        "--grok-api-key",
+        "--flux-api-key",
+        dest="grok_api_key",
+        default=None,
+        help="Grok API key (falls back to XAI_API_KEY / GROK_API_KEY)",
+    )
+    parser.add_argument(
+        "--model",
+        default="grok-imagine-image",
+        help="Grok image model alias",
+    )
+    parser.add_argument(
+        "--planner-model",
+        default="gemini-3.1-pro-preview",
+        help="Gemini text planner model",
+    )
+    parser.add_argument(
+        "--planner-retries",
+        type=int,
+        default=3,
+        help="Planner retry attempts",
+    )
+    parser.add_argument(
+        "--planner-min-confidence",
+        type=float,
+        default=0.7,
+        help="Min planner confidence upper bound",
     )
     parser.add_argument(
         "--enforcement-rate", type=float, default=0.2, help="Fraction for enforcement"
     )
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument(
-        "--workers", type=int, default=5, help="Number of parallel workers"
+        "--workers", type=int, default=60, help="Number of parallel workers"
     )
     parser.add_argument(
         "--resume", action="store_true", default=False, help="Resume from existing"
     )
+    parser.add_argument(
+        "--hard-negative-rate",
+        type=float,
+        default=0.3,
+        help="Fraction of synth images to use hard negative strategy",
+    )
+    parser.add_argument(
+        "--max-random-variants-per-image",
+        type=int,
+        default=1,
+        help="How many normal-vehicle variants to generate per source image",
+    )
+    parser.add_argument(
+        "--max-enforcement-variants-per-image",
+        type=int,
+        default=1,
+        help="How many variants to generate for each enforcement edit type per source image",
+    )
+    parser.add_argument(
+        "--max-non-road-hard-negatives",
+        type=int,
+        default=400,
+        help="Max non-road images to retain as hard negatives",
+    )
+    parser.add_argument(
+        "--non-road-list",
+        default="lists/non_road_candidates.txt",
+        help="Input list of non-road images",
+    )
+    parser.add_argument(
+        "--non-road-keep-list",
+        default="lists/non_road_keep.txt",
+        help="Output list of retained non-road hard negatives",
+    )
+    parser.add_argument(
+        "--non-road-drop-list",
+        default="lists/non_road_drop.txt",
+        help="Output list of non-road images not retained",
+    )
     args = parser.parse_args()
 
-    api_key = args.api_key or os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        logger.error("No API key. Set GEMINI_API_KEY or use --api-key")
+    # Resolve run directory
+    run_dir = Path(args.run_dir).resolve()
+
+    def _resolve_path(raw_value: str) -> Path:
+        candidate = Path(raw_value)
+        return candidate if candidate.is_absolute() else run_dir / candidate
+
+    def _resolve_image_path(raw_value: str) -> Path:
+        if not raw_value:
+            return run_dir / ""
+        candidate = Path(raw_value)
+        return candidate if candidate.is_absolute() else run_dir / candidate
+
+    planner_api_key = args.api_key or os.getenv("GEMINI_API_KEY")
+    if not planner_api_key:
+        logger.error("No planner API key. Set GEMINI_API_KEY or use --api-key")
         return
 
-    client = genai.Client(api_key=api_key)
+    grok_api_key = (
+        args.grok_api_key or os.getenv("XAI_API_KEY") or os.getenv("GROK_API_KEY")
+    )
+    if not grok_api_key:
+        logger.error("No Grok API key. Set XAI_API_KEY/GROK_API_KEY or --grok-api-key")
+        return
 
-    manifest_path = Path(args.manifest)
-    empty_list_path = Path(args.empty_list)
-    excluded_list_path = Path(args.excluded_list)
-    out_dir = Path(args.out_dir)
+    client = genai.Client(api_key=planner_api_key)
+
+    manifest_path = _resolve_path(args.manifest)
+    empty_list_path = _resolve_path(args.empty_list)
+    excluded_list_path = _resolve_path(args.excluded_list)
+    out_dir = _resolve_path(args.out_dir)
+    non_road_list_path = _resolve_path(args.non_road_list)
+    non_road_keep_list_path = _resolve_path(args.non_road_keep_list)
+    non_road_drop_list_path = _resolve_path(args.non_road_drop_list)
 
     if not manifest_path.exists():
         logger.error(f"Manifest not found: {manifest_path}")
@@ -461,6 +913,30 @@ def main():
     else:
         logger.warning(f"Empty list not found: {empty_list_path}")
         empty_candidates = []
+
+    non_road_ids = []
+    if non_road_list_path.exists():
+        with open(non_road_list_path, "r") as f:
+            non_road_ids = [line.strip() for line in f if line.strip()]
+
+    random.shuffle(non_road_ids)
+    keep_cap = max(0, args.max_non_road_hard_negatives)
+    non_road_keep_ids = non_road_ids[:keep_cap]
+    non_road_drop_ids = non_road_ids[keep_cap:]
+
+    non_road_keep_list_path.parent.mkdir(parents=True, exist_ok=True)
+    non_road_drop_list_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(non_road_keep_list_path, "w", encoding="utf-8") as f:
+        for image_id in non_road_keep_ids:
+            f.write(f"{image_id}\n")
+    with open(non_road_drop_list_path, "w", encoding="utf-8") as f:
+        for image_id in non_road_drop_ids:
+            f.write(f"{image_id}\n")
+    logger.info(
+        "Non-road hard negatives retained=%s dropped=%s",
+        len(non_road_keep_ids),
+        len(non_road_drop_ids),
+    )
 
     # Filter out excluded images
     excluded_ids = set()
@@ -515,6 +991,30 @@ def main():
     # Build lookup for manifest rows
     manifest_lookup = {row.get("image_id"): row for row in manifest}
 
+    # Select hard negative candidates (images that already have vehicles)
+    hard_negative_candidates = set()
+    potential_hard_negs = [
+        rid
+        for rid, row in manifest_lookup.items()
+        if (
+            row.get("num_boxes_autogen")
+            and str(row.get("num_boxes_autogen")).isdigit()
+            and int(row.get("num_boxes_autogen")) > 0
+        )
+        and rid in empty_candidates
+    ]
+
+    if potential_hard_negs:
+        num_hard_negs = int(len(potential_hard_negs) * args.hard_negative_rate)
+        hard_negative_candidates = set(
+            random.sample(potential_hard_negs, num_hard_negs)
+        )
+        logger.info(
+            f"Selected {len(hard_negative_candidates)} hard negative candidates from {len(potential_hard_negs)} images with existing vehicles"
+        )
+
+    rate_limiter = RequestRateLimiter(max_requests=280, period_seconds=60.0)
+
     # Process images in parallel
     total_count = 0
 
@@ -525,19 +1025,33 @@ def main():
             if not parent_row:
                 continue
 
-            future = executor.submit(
-                process_image,
-                client,
-                img_id,
-                parent_row,
-                out_dir,
-                existing_ids,
-                enforcement_candidates,
-                reference_images,
-                args.model,
-                args.seed,
-            )
-            futures[future] = img_id
+            random_variants = max(1, args.max_random_variants_per_image)
+            enforcement_variants = max(1, args.max_enforcement_variants_per_image)
+            total_variants = max(random_variants, enforcement_variants)
+
+            for variant_idx in range(total_variants):
+                variant_seed = args.seed + variant_idx * 100_003
+                future = executor.submit(
+                    process_image,
+                    client,
+                    grok_api_key,
+                    img_id,
+                    parent_row,
+                    out_dir,
+                    existing_ids,
+                    enforcement_candidates,
+                    reference_images,
+                    args.model,
+                    variant_seed,
+                    img_id in hard_negative_candidates,
+                    variant_idx,
+                    args.planner_model,
+                    args.planner_retries,
+                    args.planner_min_confidence,
+                    run_dir,
+                    rate_limiter,
+                )
+                futures[future] = img_id
 
         # Collect results with progress bar
         for future in tqdm(

@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ParkOpticon Labeler</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1a1a1a; color: #e0e0e0; height: 100vh; display: flex; flex-direction: column; }
+        header { background: #2a2a2a; padding: 12px 20px; border-bottom: 1px solid #333; display: flex; justify-content: space-between; align-items: center; }
+        h1 { font-size: 18px; font-weight: 600; }
+        .controls { display: flex; gap: 10px; align-items: center; }
+        button { background: #4a4a4a; color: #fff; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-size: 14px; transition: background 0.2s; }
+        button:hover { background: #5a5a5a; }
+        button.primary { background: #2563eb; }
+        button.primary:hover { background: #3b82f6; }
+        button.danger { background: #dc2626; }
+        button.danger:hover { background: #ef4444; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        .main { flex: 1; display: flex; overflow: hidden; }
+        .canvas-container { flex: 1; display: flex; justify-content: center; align-items: center; background: #111; position: relative; overflow: auto; padding: 20px; }
+        canvas { max-width: 100%; max-height: 100%; border: 1px solid #333; }
+        .sidebar { width: 280px; background: #222; border-left: 1px solid #333; padding: 16px; overflow-y: auto; }
+        .info-panel { margin-bottom: 20px; }
+        .info-panel h3 { font-size: 14px; color: #888; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .info-panel p { font-size: 14px; margin-bottom: 4px; }
+        .info-panel .highlight { color: #4ade80; }
+        .boxes-list { display: flex; flex-direction: column; gap: 8px; }
+        .box-item { background: #2a2a2a; padding: 10px; border-radius: 4px; cursor: pointer; border: 2px solid transparent; }
+        .box-item:hover { background: #333; }
+        .box-item.selected { border-color: #2563eb; }
+        .box-item.class-0 { border-left: 4px solid #4ade80; }
+        .box-item.class-1 { border-left: 4px solid #f59e0b; }
+        .box-item .class-label { font-size: 12px; color: #888; }
+        .box-item .coords { font-size: 11px; color: #666; font-family: monospace; }
+        .shortcuts { font-size: 12px; color: #666; }
+        .shortcuts kbd { background: #333; padding: 2px 6px; border-radius: 3px; font-family: monospace; }
+        .status-bar { background: #222; padding: 8px 20px; border-top: 1px solid #333; font-size: 13px; color: #888; display: flex; justify-content: space-between; }
+        .synthetic-badge { display: inline-block; background: #7c3aed; color: #fff; padding: 2px 8px; border-radius: 10px; font-size: 11px; margin-left: 8px; }
+    </style>
+</head>
+<body>
+    <a href="/" style="display:inline-block; margin: 10px 20px; text-decoration: none; color: #2563eb; font-weight: bold;">&larr; Back to Tools</a>
+    <header>
+        <h1>ParkOpticon Labeler</h1>
+        <div class="controls">
+            <label for="queueFilter" style="font-size:13px; color:#aaa;">Queue</label>
+            <select id="queueFilter" style="background:#2a2a2a; color:#fff; border:1px solid #444; padding:7px 10px; border-radius:4px;">
+                <option value="needs_review" selected>Needs review only</option>
+                <option value="all">All pending</option>
+                <option value="autolabel_ok">Autolabel-approved only</option>
+            </select>
+            <input id="imageSearchInput" type="text" placeholder="Jump to image ID" style="background:#2a2a2a; color:#fff; border:1px solid #444; padding:7px 10px; border-radius:4px; min-width:180px;" />
+            <button id="imageSearchBtn" title="Jump to image ID">Go</button>
+            <label style="font-size:13px; color:#aaa; display:flex; align-items:center; gap:6px;">
+                <input id="autosaveToggle" type="checkbox" />
+                Autosave on next/prev
+            </label>
+            <label style="font-size:13px; color:#aaa; display:flex; align-items:center; gap:6px;">
+                <input id="showExcludedToggle" type="checkbox" />
+                Show excluded
+            </label>
+            <button id="prevBtn" title="Previous image">←</button>
+            <button id="nextBtn" title="Next image">→</button>
+            <button id="markInsertedBtn" class="primary" style="display:none;">Mark Inserted Vehicle</button>
+            <button id="saveBtn" class="primary">Save (S)</button>
+        </div>
+    </header>
+    <div class="main">
+        <div class="canvas-container">
+            <canvas id="canvas"></canvas>
+        </div>
+        <div class="sidebar">
+            <div class="info-panel">
+                <h3>Image Info</h3>
+                <p>ID: <span id="imageId">-</span></p>
+                <p>Status: <span id="imageStatus">-</span></p>
+                <p>Excluded: <span id="excludedStatus">-</span></p>
+                <p id="syntheticInfo" style="display:none;">Synthetic: <span class="highlight">Yes</span></p>
+            </div>
+            <div class="info-panel">
+                <h3>Bounding Boxes</h3>
+                <div id="boxesList" class="boxes-list"></div>
+                <button id="addBoxBtn" style="width:100%; margin-top:10px;">+ Add Box</button>
+            </div>
+            <div class="info-panel shortcuts">
+                <h3>Shortcuts</h3>
+                <p><kbd>←</kbd> / <kbd>→</kbd> Next/Prev</p>
+                <p><kbd>N</kbd> / <kbd>P</kbd> Next/Prev (alt)</p>
+                <p><kbd>0</kbd> Vehicle class</p>
+                <p><kbd>1</kbd> Bylaw enforcement</p>
+                <p><kbd>2</kbd> Police old</p>
+                <p><kbd>3</kbd> Police new</p>
+                <p><kbd>4</kbd> Lookalike negative</p>
+                <p><kbd>Del</kbd> Delete selected</p>
+                <p><kbd>S</kbd> Save</p>
+            </div>
+        </div>
+    </div>
+    <div class="status-bar">
+        <span id="progress">0 / 0</span>
+        <span id="reviewSpeed">Reviewed: 0 | Speed: 0.0/min</span>
+        <span id="hint">Click and drag to create box</span>
+    </div>
+    <script src="/static/app.js"></script>
+</body>
+</html>

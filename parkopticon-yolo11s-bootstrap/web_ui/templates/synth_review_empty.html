@@ -1,0 +1,402 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Review Empty Backgrounds</title>
+  <style>
+    :root {
+      --bg: #f3f4f6;
+      --panel: #ffffff;
+      --text: #111827;
+      --muted: #6b7280;
+      --border: #d1d5db;
+      --primary: #2563eb;
+      --danger: #dc2626;
+      --danger-bg: #fef2f2;
+      --danger-border: #fecaca;
+      --success-bg: #ecfdf5;
+      --success-border: #86efac;
+      --success: #166534;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding: 20px;
+    }
+
+    .app {
+      max-width: 1400px;
+      margin: 0 auto;
+      display: grid;
+      gap: 12px;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: 22px;
+    }
+
+    .muted {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .spacer { flex: 1; }
+
+    button, a.button {
+      border: 1px solid var(--border);
+      background: #fff;
+      color: var(--text);
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-size: 14px;
+      text-decoration: none;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    button:hover, a.button:hover { border-color: var(--primary); }
+
+    button.primary {
+      border-color: var(--primary);
+      color: var(--primary);
+      background: #eff6ff;
+    }
+
+    button.danger {
+      border-color: var(--danger);
+      color: #fff;
+      background: var(--danger);
+    }
+
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+
+    .notice {
+      display: none;
+      border-radius: 8px;
+      padding: 10px;
+      font-size: 13px;
+    }
+
+    .notice.show { display: block; }
+
+    .notice.error {
+      background: var(--danger-bg);
+      border: 1px solid var(--danger-border);
+      color: #991b1b;
+    }
+
+    .notice.success {
+      background: var(--success-bg);
+      border: 1px solid var(--success-border);
+      color: var(--success);
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+      gap: 10px;
+      max-height: 74vh;
+      overflow-y: auto;
+      overflow-x: hidden;
+      align-content: start;
+    }
+
+    .card {
+      border: 2px solid transparent;
+      border-radius: 8px;
+      overflow: hidden;
+      background: #fff;
+      display: grid;
+      grid-template-rows: 180px auto;
+      cursor: pointer;
+    }
+
+    .card:hover { border-color: #93c5fd; }
+    .card.selected { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary); }
+
+    .thumb {
+      width: 100%;
+      height: 180px;
+      object-fit: contain;
+      display: block;
+      background: #ddd;
+    }
+
+    .meta {
+      padding: 10px;
+      display: grid;
+      gap: 3px;
+      font-size: 12px;
+      color: #374151;
+      word-break: break-word;
+    }
+
+    .meta .id {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 11px;
+      color: #4b5563;
+    }
+
+    .empty {
+      color: var(--muted);
+      border: 1px dashed var(--border);
+      border-radius: 8px;
+      padding: 16px;
+      text-align: center;
+      font-size: 13px;
+    }
+
+    @media (max-width: 900px) {
+      .grid {
+        grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      }
+
+      .card { grid-template-rows: 130px auto; }
+      .thumb { height: 130px; }
+    }
+  </style>
+</head>
+<body>
+    <a href="/" style="display:inline-block; margin: 10px 20px; text-decoration: none; color: #2563eb; font-weight: bold;">&larr; Back to Tools</a>
+  <div class="app">
+    <div class="panel">
+      <h1>Review Empty Background Images</h1>
+      <p class="muted">
+        Select empty-background images to exclude from synthetic data generation.
+        Excluded images will remain in the dataset but won't be used for creating synthetic variants.
+        Click images to select/deselect multiple at once.
+      </p>
+      <div class="row" style="margin-top:10px;">
+        <a class="button" href="/">Back to Generator</a>
+        <button id="reloadBtn">Reload</button>
+        <span class="spacer"></span>
+        <button id="selectAllBtn">Select All</button>
+        <button id="selectNoneBtn">Select None</button>
+        <button id="excludeBtn" class="danger" disabled>Exclude Selected</button>
+      </div>
+      <div class="row" style="margin-top:10px;">
+        <span id="status" class="muted">Loading...</span>
+      </div>
+    </div>
+
+    <div id="error" class="notice error"></div>
+    <div id="success" class="notice success"></div>
+
+    <div class="panel">
+      <div id="grid" class="grid"></div>
+      <div id="emptyState" class="empty" style="display:none;">No empty images available.</div>
+    </div>
+  </div>
+
+  <script>
+    const state = {
+      items: [],
+      selectedIds: new Set(),
+      busy: false,
+      counts: { total_empty: 0, excluded: 0, available: 0 },
+    };
+
+    const el = {
+      grid: document.getElementById("grid"),
+      emptyState: document.getElementById("emptyState"),
+      status: document.getElementById("status"),
+      error: document.getElementById("error"),
+      success: document.getElementById("success"),
+      reloadBtn: document.getElementById("reloadBtn"),
+      excludeBtn: document.getElementById("excludeBtn"),
+      selectAllBtn: document.getElementById("selectAllBtn"),
+      selectNoneBtn: document.getElementById("selectNoneBtn"),
+    };
+
+    function setBusy(value) {
+      state.busy = value;
+      el.reloadBtn.disabled = value;
+      el.excludeBtn.disabled = value || state.selectedIds.size === 0;
+    }
+
+    function showError(message) {
+      el.error.textContent = message;
+      el.error.classList.add("show");
+    }
+
+    function showSuccess(message) {
+      el.success.textContent = message;
+      el.success.classList.add("show");
+    }
+
+    function clearNotices() {
+      el.error.textContent = "";
+      el.success.textContent = "";
+      el.error.classList.remove("show");
+      el.success.classList.remove("show");
+    }
+
+    function selectedItems() {
+      return state.items.filter((x) => state.selectedIds.has(x.image_id));
+    }
+
+    function updateStatus() {
+      const { total_empty, excluded, available } = state.counts;
+      const selectedCount = state.selectedIds.size;
+      
+      if (total_empty === 0) {
+        el.status.textContent = "No empty candidates loaded.";
+        return;
+      }
+      
+      if (selectedCount === 0) {
+        el.status.textContent = `${available} available, ${excluded} excluded (of ${total_empty} total)`;
+      } else {
+        el.status.textContent = `${selectedCount} selected | ${available} available, ${excluded} excluded (of ${total_empty} total)`;
+      }
+    }
+    function render() {
+      el.grid.innerHTML = "";
+      el.emptyState.style.display = state.items.length ? "none" : "block";
+
+      for (const item of state.items) {
+        const card = document.createElement("div");
+        card.className = `card${state.selectedIds.has(item.image_id) ? " selected" : ""}`;
+        card.addEventListener("click", () => {
+          // Toggle selection (multi-select by default)
+          if (state.selectedIds.has(item.image_id)) {
+            state.selectedIds.delete(item.image_id);
+          } else {
+            state.selectedIds.add(item.image_id);
+          }
+          render();
+        });
+
+        const img = document.createElement("img");
+        img.className = "thumb";
+        img.src = item.url;
+        img.alt = item.image_id;
+        img.loading = "lazy";
+
+        const meta = document.createElement("div");
+        meta.className = "meta";
+        meta.innerHTML = `
+          <div><strong>Panorama:</strong> ${item.pano_id || "n/a"}</div>
+          <div><strong>Heading:</strong> ${item.heading || "n/a"}</div>
+          <div><strong>Street:</strong> ${item.street || "n/a"}</div>
+          <div class="id">${item.image_id}</div>
+        `;
+
+        card.appendChild(img);
+        card.appendChild(meta);
+        el.grid.appendChild(card);
+      }
+
+      el.excludeBtn.disabled = state.busy || state.selectedIds.size === 0;
+      updateStatus();
+    }
+
+    async function fetchJson(url, options = undefined) {
+      const response = await fetch(url, options);
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const details = body?.details ? ` | ${body.details.join(" ; ")}` : "";
+        throw new Error((body?.error || `Request failed (${response.status})`) + details);
+      }
+      return body;
+    }
+
+    async function loadItems() {
+      clearNotices();
+      setBusy(true);
+      try {
+        const data = await fetchJson("/api/synth/empty-review?limit=2000");
+        state.items = data.items || [];
+        state.counts = data.counts || { total_empty: 0, excluded: 0, available: 0 };
+        // Remove any selected IDs that no longer exist
+        const itemIds = new Set(state.items.map((x) => x.image_id));
+        for (const id of state.selectedIds) {
+          if (!itemIds.has(id)) {
+            state.selectedIds.delete(id);
+          }
+        }
+        render();
+      } catch (error) {
+        showError(error.message || String(error));
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    async function excludeSelected() {
+      const itemsToExclude = selectedItems();
+      if (itemsToExclude.length === 0) {
+        return;
+      }
+      
+      const confirmed = confirm(`Exclude ${itemsToExclude.length} selected image(s) from synthetic generation?`);
+      if (!confirmed) {
+        return;
+      }
+      
+      clearNotices();
+      setBusy(true);
+      
+      try {
+        const imageIds = itemsToExclude.map((item) => item.image_id);
+        const body = await fetchJson("/api/synth/empty-review/exclude", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ image_ids: imageIds }),
+        });
+        
+        // Reload to get updated counts and items
+        state.selectedIds.clear();
+        await loadItems();
+        showSuccess(`Excluded ${body.excluded_count} image(s) from synthetic generation.`);
+      } catch (error) {
+        showError(error.message || String(error));
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    function selectAll() {
+      for (const item of state.items) {
+        state.selectedIds.add(item.image_id);
+      }
+      render();
+    }
+
+    function selectNone() {
+      state.selectedIds.clear();
+      render();
+    }
+
+    el.reloadBtn.addEventListener("click", loadItems);
+    el.excludeBtn.addEventListener("click", excludeSelected);
+    el.selectAllBtn.addEventListener("click", selectAll);
+    el.selectNoneBtn.addEventListener("click", selectNone);
+
+    loadItems();
+  </script>
+</body>
+</html>

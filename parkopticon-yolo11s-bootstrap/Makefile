@@ -1,4 +1,4 @@
-.PHONY: help fetch crop empty synth prelabel labeler split train eval hard_negatives clean
+.PHONY: help fetch crop empty synth prelabel ui split train eval hard_negatives clean
 
 help:
 	@echo "ParkOpticon YOLO11s Bootstrap - Pipeline Commands"
@@ -8,7 +8,7 @@ help:
 	@echo "make empty       - Detect empty frames (no vehicles)"
 	@echo "make synth      - Generate synthetic vehicle edits"
 	@echo "make prelabel   - Auto-generate bounding box labels"
-	@echo "make labeler    - Start labeling UI"
+	@echo "make ui         - Start unified Web UI"
 	@echo "make split      - Create train/val/test split"
 	@echo "make train      - Train YOLO11s detector"
 	@echo "make eval       - Evaluate on test set"
@@ -25,13 +25,13 @@ empty:
 	python scripts/03_detect_empty_frames.py
 
 synth:
-	python scripts/04_synthesize_vehicle_edits.py
+	python scripts/04_synthesize_vehicle_edits.py --run-dir runs/Benchmark_Run_002
 
 prelabel:
 	python scripts/05_prelabel_boxes.py
 
-labeler:
-	cd labeler && python app.py
+ui:
+	python web_ui/app.py
 
 split:
 	python scripts/06_split_dataset.py

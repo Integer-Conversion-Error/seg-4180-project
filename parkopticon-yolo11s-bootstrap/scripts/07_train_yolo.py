@@ -23,6 +23,7 @@ def main():
     parser = argparse.ArgumentParser(description="Train YOLO11s detector")
     parser.add_argument("--data", "-d", default="dataset.yaml", help="Dataset YAML")
     parser.add_argument("--model", "-m", default="yolo11s.pt", help="Base model")
+    parser.add_argument("--project", "-p", default="runs/detect", help="Output project directory")
     parser.add_argument("--epochs", "-e", type=int, default=50, help="Epochs")
     parser.add_argument("--imgsz", "-s", type=int, default=640, help="Image size")
     parser.add_argument(
@@ -53,7 +54,7 @@ def main():
     ultralytics_module = importlib.import_module("ultralytics")
     model = ultralytics_module.YOLO(args.model)
 
-    project = "runs/detect"
+    project = args.project
     name = args.name
 
     logger.info(f"Starting training with {args.epochs} epochs")

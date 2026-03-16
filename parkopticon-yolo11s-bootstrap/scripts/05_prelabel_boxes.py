@@ -13,6 +13,7 @@ from datetime import datetime
 from pathlib import Path
 
 import cv2
+import matplotlib.pyplot as plt
 import numpy as np
 from PIL import Image
 from tqdm import tqdm
@@ -403,6 +404,11 @@ def main():
         action="store_true",
         help="Disable YOLO label validation",
     )
+    parser.add_argument(
+        "--histogram-out",
+        default="reports/prelabel_vehicle_count_hist.png",
+        help="Output PNG path for prelabel vehicle-count histogram",
+    )
     args = parser.parse_args()
 
     manifest_path = Path(args.manifest)
@@ -422,6 +428,7 @@ def main():
     model = ultralytics_module.YOLO(args.model)
 
     bad_synthetic_ids = []
+    histogram_counts = []
     validation_enabled = not args.skip_label_validation
     total_boxes_validated = 0
     invalid_boxes_found = 0
@@ -572,8 +579,36 @@ def main():
             else:
                 row["label_error"] = ""
 
+            route_category = (row.get("route_category") or "").strip()
+            excluded_reason = (row.get("excluded_reason") or "").strip()
+            if (
+                len(boxes) > 0
+                and route_category
+                not in {"non_road", "non_street", "existing_vehicle_only"}
+                and not excluded_reason
+            ):
+                histogram_counts.append(len(boxes))
+
     save_manifest(manifest, manifest_path)
     logger.info(f"Labels saved to {out_dir}")
+
+    histogram_out = Path(args.histogram_out)
+    histogram_out.parent.mkdir(parents=True, exist_ok=True)
+    if histogram_counts:
+        plt.figure(figsize=(10, 5))
+        bins = range(1, max(histogram_counts) + 2)
+        plt.hist(histogram_counts, bins=bins, edgecolor="black", alpha=0.8)
+        plt.title("Prelabel Vehicle Box Count Distribution")
+        plt.xlabel("Vehicle boxes per image")
+        plt.ylabel("Image count")
+        plt.tight_layout()
+        plt.savefig(histogram_out, dpi=150)
+        plt.close()
+        logger.info("Saved histogram PNG: %s", histogram_out)
+    else:
+        logger.warning(
+            "Histogram skipped: no eligible images after exclusions (0 boxes/non-road/non-street/excluded)."
+        )
 
     # Write bad synthetics list
     with open(bad_synthetics_path, "w") as f:

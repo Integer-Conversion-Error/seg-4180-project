@@ -1,146 +1,137 @@
 #!/usr/bin/env python3
-"""
-Detect vehicles in Street View images using pretrained YOLO.
-Identifies images with no vehicle detections (empty_candidates).
-"""
 
 import argparse
-import csv
-import json
-import logging
-from datetime import datetime
+import subprocess
+import sys
 from pathlib import Path
 
-from tqdm import tqdm
-from ultralytics import YOLO
 
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
-
-
-COCO_VEHICLE_CLASSES = {
-    2: "car",
-    3: "motorcycle", 
-    5: "bus",
-    7: "truck"
-}
-
-
-def detect_vehicles(
-    model: YOLO,
-    image_path: Path,
-    conf: float = 0.25,
-    vehicle_classes: list = None
-) -> list:
-    if vehicle_classes is None:
-        vehicle_classes = [2, 3, 5, 7]
-    
-    results = model(image_path, conf=conf, verbose=False)
-    
-    boxes = []
-    for r in results:
-        for box in r.boxes:
-            cls_id = int(box.cls[0])
-            if cls_id in vehicle_classes:
-                x1, y1, x2, y2 = box.xyxy[0].tolist()
-                conf_score = float(box.conf[0])
-                boxes.append({
-                    "x1": x1,
-                    "y1": y1,
-                    "x2": x2,
-                    "y2": y2,
-                    "conf": conf_score,
-                    "coco_class": cls_id,
-                    "coco_class_name": COCO_VEHICLE_CLASSES.get(cls_id, "unknown")
-                })
-    
-    return boxes
-
-
-def load_manifest(manifest_path: Path) -> list:
-    with open(manifest_path, 'r') as f:
-        return list(csv.DictReader(f))
-
-
-def save_manifest(manifest: list, manifest_path: Path):
-    if not manifest:
-        return
-    fieldnames = list(manifest[0].keys())
-    manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(manifest_path, 'w', newline='') as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        writer.writeheader()
-        writer.writerows(manifest)
-
-
-def main():
-    parser = argparse.ArgumentParser(description="Detect vehicles in images")
-    parser.add_argument("--manifest", "-m", default="manifests/images.csv", help="Input manifest")
-    parser.add_argument("--out-manifest", "-o", default="manifests/images.csv", help="Updated manifest")
-    parser.add_argument("--boxes-out", "-b", default="manifests/boxes_autogen.jsonl", help="Boxes JSONL output")
-    parser.add_argument("--empty-out", "-e", default="lists/empty_candidates.txt", help="Empty candidates list")
-    parser.add_argument("--model", default="yolo11s.pt", help="YOLO model (auto-downloads)")
-    parser.add_argument("--conf", type=float, default=0.25, help="Confidence threshold")
-    parser.add_argument("--device", default="cpu", help="Device (cpu or 0)")
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Stage 03 orchestrator (03a YOLO pass -> 03b Gemini gate)",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument("--run-dir", default=".")
+    parser.add_argument("--manifest", "-m", default="manifests/images.csv")
+    parser.add_argument("--out-manifest", "-o", default="manifests/images.csv")
+    parser.add_argument("--boxes-out", "-b", default="manifests/boxes_autogen.jsonl")
+    parser.add_argument("--empty-out", "-e", default="lists/empty_candidates.txt")
+    parser.add_argument("--valid-road-out", default="lists/valid_road_candidates.txt")
+    parser.add_argument("--non-road-out", default="lists/non_road_candidates.txt")
+    parser.add_argument("--non-street-out", default="lists/non_street_candidates.txt")
+    parser.add_argument("--yolo-empty-out", default="lists/yolo_empty_all.txt")
+    parser.add_argument("--yolo-empty-in", default="lists/yolo_empty_all.txt")
+    parser.add_argument("--stash-non-road-dir", default="data/images_excluded/non_road")
+    parser.add_argument(
+        "--stash-non-street-dir", default="data/images_excluded/non_street"
+    )
+    parser.add_argument("--model", default="yolo11s.pt")
+    parser.add_argument("--conf", type=float, default=0.25)
+    parser.add_argument("--device", default="0")
+    parser.add_argument("--gemini-gate-model", default="gemini-3.1-pro-preview")
+    parser.add_argument("--gemini-api-key", default=None)
+    parser.add_argument("--gemini-retries", type=int, default=3)
+    parser.add_argument("--gemini-workers", type=int, default=60)
+    parser.add_argument("--min-street-confidence", type=float, default=0.75)
+    parser.add_argument("--min-road-confidence", type=float, default=0.70)
+    parser.add_argument("--skip-gemini-gate", action="store_true")
+    parser.add_argument("--no-fresh-reset", action="store_true")
+    parser.add_argument("--nuke", action="store_true")
+    parser.add_argument("--soft-gate", action="store_true")
+    parser.add_argument("--soft-gate-dir", default="data/gating_snapshots")
     args = parser.parse_args()
-    
-    manifest_path = Path(args.manifest)
-    boxes_out = Path(args.bboxes_out) if hasattr(args, 'bboxes_out') else Path(args.boxes_out.replace('.jsonl', '_temp.jsonl'))
-    empty_out = Path(args.empty_out)
-    
-    if not manifest_path.exists():
-        logger.error(f"Manifest not found: {manifest_path}")
-        return
-    
-    manifest = load_manifest(manifest_path)
-    
-    logger.info(f"Loading YOLO model: {args.model}")
-    model = YOLO(args.model)
-    
-    boxes_out.parent.mkdir(parents=True, exist_ok=True)
-    empty_out.parent.mkdir(parents=True, exist_ok=True)
-    
-    empty_candidates = []
-    
-    with open(boxes_out, 'w') as boxes_f:
-        for row in tqdm(manifest, desc="Detecting vehicles"):
-            image_id = row.get('image_id', '')
-            file_path = Path(row.get('file_path', ''))
-            
-            if not file_path.exists() or row.get('status') != 'ok':
-                continue
-            
-            boxes = detect_vehicles(model, file_path, args.conf)
-            
-            boxes_f.write(json.dumps({
-                "image_id": image_id,
-                "boxes": boxes
-            }) + "\n")
-            
-            if len(boxes) == 0:
-                empty_candidates.append(image_id)
-                row['num_boxes_autogen'] = '0'
-            else:
-                row['num_boxes_autogen'] = str(len(boxes))
-            
-            if image_id in empty_candidates:
-                row['needs_review'] = '1'
-    
-    with open(empty_out, 'w') as f:
-        for img_id in empty_candidates:
-            f.write(img_id + "\n")
-    
-    save_manifest(manifest, Path(args.out_manifest))
-    
-    logger.info(f"Processed {len(manifest)} images")
-    logger.info(f"Found {len(empty_candidates)} empty candidates")
-    logger.info(f"Boxes saved to {boxes_out}")
-    logger.info(f"Empty candidates saved to {empty_out}")
+
+    scripts_dir = Path(__file__).resolve().parent
+    stage03a = scripts_dir / "03a_yolo_pass.py"
+    stage03b = scripts_dir / "03b_gemini_gate.py"
+
+    stage03a_cmd = [
+        sys.executable,
+        str(stage03a),
+        "--run-dir",
+        args.run_dir,
+        "--manifest",
+        args.manifest,
+        "--out-manifest",
+        args.out_manifest,
+        "--boxes-out",
+        args.boxes_out,
+        "--empty-out",
+        args.empty_out,
+        "--valid-road-out",
+        args.valid_road_out,
+        "--non-road-out",
+        args.non_road_out,
+        "--non-street-out",
+        args.non_street_out,
+        "--yolo-empty-out",
+        args.yolo_empty_out,
+        "--stash-non-road-dir",
+        args.stash_non_road_dir,
+        "--stash-non-street-dir",
+        args.stash_non_street_dir,
+        "--model",
+        args.model,
+        "--conf",
+        f"{args.conf:.3f}",
+        "--device",
+        args.device,
+    ]
+
+    if args.no_fresh_reset:
+        stage03a_cmd.append("--no-fresh-reset")
+    if args.nuke:
+        stage03a_cmd.append("--nuke")
+
+    res_a = subprocess.run(stage03a_cmd)
+    if res_a.returncode != 0:
+        return res_a.returncode
+
+    stage03b_cmd = [
+        sys.executable,
+        str(stage03b),
+        "--run-dir",
+        args.run_dir,
+        "--manifest",
+        args.manifest,
+        "--out-manifest",
+        args.out_manifest,
+        "--empty-out",
+        args.empty_out,
+        "--valid-road-out",
+        args.valid_road_out,
+        "--non-road-out",
+        args.non_road_out,
+        "--non-street-out",
+        args.non_street_out,
+        "--yolo-empty-in",
+        args.yolo_empty_in,
+        "--stash-non-road-dir",
+        args.stash_non_road_dir,
+        "--stash-non-street-dir",
+        args.stash_non_street_dir,
+        "--gemini-gate-model",
+        args.gemini_gate_model,
+        "--gemini-retries",
+        str(args.gemini_retries),
+        "--min-street-confidence",
+        f"{args.min_street_confidence:.3f}",
+        "--min-road-confidence",
+        f"{args.min_road_confidence:.3f}",
+        "--gemini-workers",
+        str(args.gemini_workers),
+    ]
+
+    if args.gemini_api_key:
+        stage03b_cmd.extend(["--gemini-api-key", args.gemini_api_key])
+    if args.skip_gemini_gate:
+        stage03b_cmd.append("--skip-gemini-gate")
+    if args.soft_gate:
+        stage03b_cmd.extend(["--soft-gate", "--soft-gate-dir", args.soft_gate_dir])
+
+    res_b = subprocess.run(stage03b_cmd)
+    return res_b.returncode
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
