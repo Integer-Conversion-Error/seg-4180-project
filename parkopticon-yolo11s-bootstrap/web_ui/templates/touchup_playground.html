@@ -51,22 +51,9 @@
         .results { margin-top: 1rem; }
         .result-image { max-width: 100%; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
         
-        .prompt-editor { margin-top: 1rem; padding: 1rem; background: white; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); display: none; }
-        .prompt-editor.visible { display: block; }
-        .prompt-editor h3 { margin: 0 0 1rem 0; font-size: 1rem; }
-        .prompt-editor input, .prompt-editor textarea { width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 4px; margin-bottom: 0.5rem; }
-        .prompt-editor textarea { font-family: monospace; min-height: 150px; }
-        
-        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-        .modal-overlay.hidden { display: none; }
-        .modal { background: white; padding: 1.5rem; border-radius: 8px; max-width: 500px; width: 90%; }
-        .modal h3 { margin: 0 0 1rem 0; }
-        .modal input, .modal textarea { width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 4px; margin-bottom: 1rem; }
-        .modal textarea { min-height: 100px; }
-        .modal-actions { display: flex; gap: 0.5rem; justify-content: flex-end; }
-        
-        .loading { text-align: center; padding: 2rem; color: #64748b; }
-        .error { color: #dc2626; padding: 1rem; background: #fef2f2; border-radius: 4px; margin-top: 1rem; }
+        .image-nav { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; }
+        .image-nav button { padding: 4px 8px; }
+        .image-nav span { font-size: 0.9rem; color: #64748b; }
     </style>
 </head>
 <body>
@@ -91,6 +78,10 @@
             </div>
             
             <div class="control-group">
+                <label>Select Prompt</label>
+                <select id="promptSelect" onchange="onPromptSelectChange()" style="margin-bottom: 0.5rem;">
+                    <option value="">-- Select a prompt --</option>
+                </select>
                 <label>Prompt Text</label>
                 <textarea id="promptText" placeholder="Select a prompt or create a new one..."></textarea>
                 <div class="actions">
@@ -117,6 +108,11 @@
         <div class="images-panel" id="imagesPanel" style="display:none">
             <div class="image-box">
                 <h3>Input Image</h3>
+                <div class="image-nav" id="imageNav" style="display:none">
+                    <button class="btn btn-secondary" onclick="prevImage()">Prev</button>
+                    <span id="imageCounter">1 / 1</span>
+                    <button class="btn btn-secondary" onclick="nextImage()">Next</button>
+                </div>
                 <img id="inputImage" src="" alt="Input" />
             </div>
             <div class="image-box">
@@ -144,6 +140,72 @@
     <script>
         let prompts = [];
         let currentPromptId = null;
+        let imagePaths = [];
+        let currentImageIndex = 0;
+        
+        function getUrlParams() {
+            const params = new URLSearchParams(window.location.search);
+            return {
+                images: params.get('images') || '',
+                prompt: params.get('prompt') || ''
+            };
+        }
+        
+        function initFromUrl() {
+            const params = getUrlParams();
+            if (params.images) {
+                imagePaths = params.images.split('||').filter(p => p.trim());
+                if (imagePaths.length > 0) {
+                    document.getElementById('imagesPanel').style.display = 'grid';
+                    if (imagePaths.length > 1) {
+                        document.getElementById('imageNav').style.display = 'flex';
+                    }
+                    loadImageByIndex(0);
+                }
+            }
+            if (params.prompt) {
+                const promptSelect = document.getElementById('promptSelect');
+                // Try to find matching prompt by name/id
+                for (let i = 0; i < promptSelect.options.length; i++) {
+                    if (promptSelect.options[i].value === params.prompt) {
+                        promptSelect.selectedIndex = i;
+                        break;
+                    }
+                }
+            }
+        }
+        
+        function loadImageByIndex(idx) {
+            if (idx < 0 || idx >= imagePaths.length) return;
+            currentImageIndex = idx;
+            document.getElementById('imagePath').value = imagePaths[idx];
+            document.getElementById('inputImage').src = '/files/' + imagePaths[idx];
+            document.getElementById('imageCounter').textContent = `${idx + 1} / ${imagePaths.length}`;
+            document.getElementById('resultImage').style.display = 'none';
+            document.getElementById('resultPlaceholder').style.display = 'block';
+        }
+        
+        function prevImage() {
+            loadImageByIndex(currentImageIndex - 1);
+        }
+        
+        function nextImage() {
+            loadImageByIndex(currentImageIndex + 1);
+        }
+        
+        function onPromptSelectChange() {
+            const select = document.getElementById('promptSelect');
+            const id = select.value;
+            if (id) {
+                selectPrompt(id);
+            }
+        }
+        
+        function renderPromptDropdown() {
+            const select = document.getElementById('promptSelect');
+            select.innerHTML = '<option value="">-- Select a prompt --</option>' + 
+                prompts.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+        }
         
         async function loadPrompts() {
             try {
@@ -151,6 +213,8 @@
                 const data = await res.json();
                 prompts = data.prompts || [];
                 renderPromptList();
+                renderPromptDropdown();
+                initFromUrl();
             } catch (e) {
                 document.getElementById('promptList').innerHTML = '<div class="error">Failed to load prompts</div>';
             }

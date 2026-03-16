@@ -389,6 +389,7 @@
     </select>
     <input id="customPrompt" type="text" placeholder="Custom prompt text (used when Custom prompt is selected)" style="min-width:320px;" />
     <button id="regenerateBtn" title="Regenerate selected images using the prompt selected in dropdown">Regenerate Selected</button>
+    <button id="goToPlaygroundBtn" title="Open selected images in Touchup Playground">Go to Playground</button>
     
     <!-- Custom Preset Management -->
     <div id="presetManagement" style="display: flex; gap: 8px; align-items: center; margin-left: 16px;">
@@ -1197,6 +1198,16 @@
      document.getElementById('rejectBtn').addEventListener('click', () => bulkStatus('rejected'));
      document.getElementById('editedBtn').addEventListener('click', () => bulkStatus('edited'));
       document.getElementById('regenerateBtn').addEventListener('click', touchup);
+      document.getElementById('goToPlaygroundBtn').addEventListener('click', () => {
+        const selectedItems = items.filter((x) => selected.has(x.image_id));
+        if (!selectedItems.length) {
+          alert('Select at least one image first');
+          return;
+        }
+        const paths = selectedItems.map((item) => item.relative_path).join('||');
+        const encoded = encodeURIComponent(paths);
+        window.location.href = `/touchup-playground?images=${encoded}`;
+      });
       document.getElementById('zoomInBtn').addEventListener('click', () => changeCardScale(0.2));
       document.getElementById('zoomOutBtn').addEventListener('click', () => changeCardScale(-0.2));
       document.getElementById('savePresetBtn').addEventListener('click', saveCustomPreset);
