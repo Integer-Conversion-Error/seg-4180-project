@@ -1,0 +1,39 @@
+{
+  "prompts": [
+    {
+      "id": "fix_lighting",
+      "name": "Fix Lighting",
+      "description": "Correct lighting, exposure, and color-temperature to match surroundings",
+      "prompt_text": "This image contains a synthetically inserted enforcement vehicle (parking enforcement, bylaw, or police cruiser). Your task: correct the lighting, exposure, and color-temperature on that enforcement vehicle so it matches the lighting conditions at its exact position in the scene. Critical: the vehicle may be sitting inside a cast shadow from a tree, building, or other object. If the road surface and surroundings immediately around the vehicle are dark or shaded, the vehicle must also appear dark and shaded to that same degree — do not brighten it to match the sunlit parts of the scene. Infer local illumination from the surroundings — road surface tone, nearby ground, immediate area — not from the brightest or most representative parts of the image. The background is ground truth and must not change. Only the vehicle's surface shading, exposure, and color temperature should be adjusted to be consistent with the local lighting where it sits.",
+      "is_default": true
+    },
+    {
+      "id": "fix_direction",
+      "name": "Fix Direction",
+      "description": "Adjust vehicle orientation to match road direction",
+      "prompt_text": "Adjust the orientation of the enforcement or police vehicle in this image so it points in the correct direction based on the road orientation and traffic flow. The vehicle should be positioned naturally as if it was originally captured driving along the road. Maintain the vehicle's position but adjust its angle to align with the road direction. Keep all other aspects of the image unchanged.",
+      "is_default": true
+    },
+    {
+      "id": "improve_blending",
+      "name": "Improve Blending",
+      "description": "General blending improvement for synthetic vehicles",
+      "prompt_text": "Improve the blending of the inserted vehicle in this image. Fix any visible edges, seams, color mismatches, or unnatural shadows. Make the vehicle look seamlessly integrated into the scene as if it was originally captured with it. Match the lighting, color temperature, and perspective exactly. Do not change the vehicle's position or orientation.",
+      "is_default": true
+    },
+    {
+      "id": "remove_glare",
+      "name": "Remove Glare",
+      "description": "Remove unnatural glare or reflections on the vehicle",
+      "prompt_text": "Remove any unnatural glare, reflection, or shiny artifacts on the enforcement vehicle. The vehicle should have realistic, matte or properly diffuse surfaces consistent with a real vehicle. Fix any overly bright or shiny spots that don't match the vehicle's paint finish or windows.",
+      "is_default": false
+    },
+    {
+      "id": "fix_shadows",
+      "name": "Fix Shadows",
+      "description": "Correct shadow direction and intensity to match scene",
+      "prompt_text": "Fix the shadow cast by the enforcement vehicle to match the direction and intensity of other shadows in the scene. Look at shadows from trees, buildings, poles, or other objects to determine the correct light direction. Adjust the vehicle's cast shadow accordingly. The shadow should be physically plausible for the scene's lighting conditions.",
+      "is_default": false
+    }
+  ]
+}

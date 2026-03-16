@@ -113,6 +113,30 @@ def _save_presets(presets: dict) -> None:
         json.dump(presets, f, indent=2)
 
 
+def _prompts_file() -> Path:
+    return PROJECT_ROOT / "prompts" / "touchup_prompts.json"
+
+
+def _load_touchup_prompts() -> dict:
+    """Load touchup prompts from JSON file."""
+    prompts_file = _prompts_file()
+    if prompts_file.exists():
+        try:
+            with open(prompts_file, "r") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            return {"prompts": []}
+    return {"prompts": []}
+
+
+def _save_touchup_prompts(data: dict) -> None:
+    """Save touchup prompts to JSON file."""
+    prompts_file = _prompts_file()
+    prompts_file.parent.mkdir(parents=True, exist_ok=True)
+    with open(prompts_file, "w") as f:
+        json.dump(data, f, indent=2)
+
+
 def _images_original_dir() -> Path:
     return _run_path("data", "images_original")
 
@@ -938,6 +962,11 @@ async def streetview_tester(request: Request):
     return templates.TemplateResponse("streetview_tester.html", {"request": request})
 
 
+@app.get("/touchup-playground", response_class=HTMLResponse)
+async def touchup_playground(request: Request):
+    return templates.TemplateResponse("touchup_playground.html", {"request": request})
+
+
 @app.get("/files/{relative_path:path}")
 async def serve_file(relative_path: str):
     target = _normalize_under_root(PROJECT_ROOT / relative_path)
@@ -1588,6 +1617,96 @@ def delete_custom_preset(preset_name: str):
     return {"status": "ok", "message": f"Preset '{preset_name}' deleted"}
 
 
+@app.get("/api/touchup-prompts")
+def list_touchup_prompts():
+    """List all touchup prompts."""
+    data = _load_touchup_prompts()
+    return {"prompts": data.get("prompts", [])}
+
+
+@app.post("/api/touchup-prompts")
+def add_touchup_prompt(req: dict):
+    """Add a new touchup prompt."""
+    name = req.get("name", "").strip()
+    prompt_text = req.get("prompt_text", "").strip()
+    description = req.get("description", "").strip()
+
+    if not name or not prompt_text:
+        raise HTTPException(status_code=400, detail="name and prompt_text are required")
+
+    data = _load_touchup_prompts()
+    prompts = data.get("prompts", [])
+
+    new_id = name.lower().replace(" ", "_")
+    for p in prompts:
+        if p.get("id") == new_id:
+            raise HTTPException(
+                status_code=400, detail=f"Prompt with id '{new_id}' already exists"
+            )
+
+    prompts.append(
+        {
+            "id": new_id,
+            "name": name,
+            "description": description,
+            "prompt_text": prompt_text,
+            "is_default": False,
+        }
+    )
+
+    _save_touchup_prompts({"prompts": prompts})
+    return {"status": "ok", "id": new_id, "message": f"Prompt '{name}' added"}
+
+
+@app.put("/api/touchup-prompts/{prompt_id}")
+def update_touchup_prompt(prompt_id: str, req: dict):
+    """Update an existing touchup prompt."""
+    name = req.get("name", "").strip()
+    prompt_text = req.get("prompt_text", "").strip()
+    description = req.get("description", "").strip()
+
+    if not name or not prompt_text:
+        raise HTTPException(status_code=400, detail="name and prompt_text are required")
+
+    data = _load_touchup_prompts()
+    prompts = data.get("prompts", [])
+
+    found = False
+    for p in prompts:
+        if p.get("id") == prompt_id:
+            p["name"] = name
+            p["description"] = description
+            p["prompt_text"] = prompt_text
+            found = True
+            break
+
+    if not found:
+        raise HTTPException(status_code=404, detail=f"Prompt '{prompt_id}' not found")
+
+    _save_touchup_prompts({"prompts": prompts})
+    return {"status": "ok", "message": f"Prompt '{name}' updated"}
+
+
+@app.delete("/api/touchup-prompts/{prompt_id}")
+def delete_touchup_prompt(prompt_id: str):
+    """Delete a touchup prompt."""
+    data = _load_touchup_prompts()
+    prompts = data.get("prompts", [])
+
+    found = False
+    for i, p in enumerate(prompts):
+        if p.get("id") == prompt_id:
+            prompts.pop(i)
+            found = True
+            break
+
+    if not found:
+        raise HTTPException(status_code=404, detail=f"Prompt '{prompt_id}' not found")
+
+    _save_touchup_prompts({"prompts": prompts})
+    return {"status": "ok", "message": f"Prompt '{prompt_id}' deleted"}
+
+
 @app.post("/api/synth/apply-touchup")
 def apply_touchup(req: dict):
     original_path = req.get("original_image_path", "")
@@ -1857,9 +1976,11 @@ def synth_touchup(req: TouchupRequest):
     elif prompt_mode == "fix_lighting":
         user_prompt = (
             "This image contains a synthetically inserted enforcement vehicle (parking enforcement, bylaw, or police cruiser). "
-            "Your task: correct the image so it matches the lighting conditions at its exact position in the scene. "
-            "The vehicle may be sitting inside a cast shadow from a tree, building, or other object. Adjust the shadows on the vehicle accordingly to match the surrounding illumination, being mindful of ambient occlusion and contact shadows with the ground. Do not change the vehicle's position, orientation, or identity. "
-            "The background is ground truth and must not change."
+            "Your task: correct the lighting, exposure, and color-temperature on that enforcement vehicle so it matches the lighting conditions at its exact position in the scene. "
+            "Critical: the vehicle may be sitting inside a cast shadow from a tree, building, or other object. "
+            "If the road surface and surroundings immediately around the vehicle are dark or shaded, the vehicle must also appear dark and shaded to that same degree — do not brighten it to match the sunlit parts of the scene. "
+            "Infer local illumination from the surroundings — road surface tone, nearby ground, immediate area — not from the brightest or most representative parts of the image. "
+            "The background is ground truth and must not change. Only the vehicle's surface shading, exposure, and color temperature should be adjusted to be consistent with the local lighting where it sits."
         )
     else:
         # Preset: improve blending (default)
