@@ -54,6 +54,17 @@
         .image-nav { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; }
         .image-nav button { padding: 4px 8px; }
         .image-nav span { font-size: 0.9rem; color: #64748b; }
+        
+        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+        .modal-overlay.hidden { display: none; }
+        .modal { background: white; padding: 1.5rem; border-radius: 8px; max-width: 600px; width: 90%; }
+        .modal h3 { margin: 0 0 1rem 0; }
+        .modal input, .modal textarea { width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 4px; margin-bottom: 1rem; }
+        .modal textarea { font-family: monospace; min-height: 150px; }
+        .modal-actions { display: flex; gap: 0.5rem; justify-content: flex-end; }
+        
+        .prompt-name-input { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; }
+        .prompt-name-input input { flex: 1; padding: 8px; border: 1px solid #cbd5e1; border-radius: 4px; }
     </style>
 </head>
 <body>
@@ -82,12 +93,19 @@
                 <select id="promptSelect" onchange="onPromptSelectChange()" style="margin-bottom: 0.5rem;">
                     <option value="">-- Select a prompt --</option>
                 </select>
+                
+                <label>Prompt Name</label>
+                <div class="prompt-name-input">
+                    <input type="text" id="promptName" placeholder="Prompt name" />
+                    <button class="btn btn-secondary" onclick="saveCurrentPrompt()" title="Save changes to current prompt">Save</button>
+                    <button class="btn btn-danger" onclick="deleteCurrentPrompt()">Del</button>
+                </div>
+                
                 <label>Prompt Text</label>
                 <textarea id="promptText" placeholder="Select a prompt or create a new one..."></textarea>
                 <div class="actions">
                     <button class="btn btn-primary" id="runBtn" onclick="runTouchup()">Run Touchup</button>
-                    <button class="btn btn-secondary" onclick="editCurrentPrompt()">Edit</button>
-                    <button class="btn btn-danger" onclick="deleteCurrentPrompt()">Delete</button>
+                    <button class="btn btn-secondary" onclick="showAddPromptModal()">+ New Prompt</button>
                 </div>
             </div>
             
@@ -125,15 +143,17 @@
         <div id="error" class="error" style="display:none"></div>
     </div>
     
-    <div id="promptEditor" class="prompt-editor">
-        <h3 id="editorTitle">Add Prompt</h3>
-        <input type="hidden" id="editPromptId" />
-        <input type="text" id="editName" placeholder="Prompt name" />
-        <input type="text" id="editDescription" placeholder="Description" />
-        <textarea id="editText" placeholder="Prompt text"></textarea>
-        <div class="actions">
-            <button class="btn btn-primary" onclick="savePrompt()">Save</button>
-            <button class="btn btn-secondary" onclick="closePromptEditor()">Cancel</button>
+    <div id="promptModal" class="modal-overlay hidden">
+        <div class="modal">
+            <h3 id="editorTitle">Add Prompt</h3>
+            <input type="hidden" id="editPromptId" />
+            <input type="text" id="editName" placeholder="Prompt name" />
+            <input type="text" id="editDescription" placeholder="Description (optional)" />
+            <textarea id="editText" placeholder="Prompt text"></textarea>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="closePromptEditor()">Cancel</button>
+                <button class="btn btn-primary" onclick="savePrompt()">Save</button>
+            </div>
         </div>
     </div>
 
@@ -239,6 +259,7 @@
             currentPromptId = id;
             const prompt = prompts.find(p => p.id === id);
             if (prompt) {
+                document.getElementById('promptName').value = prompt.name || '';
                 document.getElementById('promptText').value = prompt.prompt_text || '';
             }
             renderPromptList();
@@ -249,8 +270,8 @@
             document.getElementById('editName').value = '';
             document.getElementById('editDescription').value = '';
             document.getElementById('editText').value = '';
-            document.getElementById('editorTitle').textContent = 'Add Prompt';
-            document.getElementById('promptEditor').classList.add('visible');
+            document.getElementById('editorTitle').textContent = 'Add New Prompt';
+            document.getElementById('promptModal').classList.remove('hidden');
         }
         
         function editCurrentPrompt() {
@@ -266,11 +287,39 @@
             document.getElementById('editDescription').value = prompt.description || '';
             document.getElementById('editText').value = prompt.prompt_text || '';
             document.getElementById('editorTitle').textContent = 'Edit Prompt';
-            document.getElementById('promptEditor').classList.add('visible');
+            document.getElementById('promptModal').classList.remove('hidden');
         }
         
         function closePromptEditor() {
-            document.getElementById('promptEditor').classList.remove('visible');
+            document.getElementById('promptModal').classList.add('hidden');
+        }
+        
+        async function saveCurrentPrompt() {
+            const name = document.getElementById('promptName').value.trim();
+            const text = document.getElementById('promptText').value.trim();
+            
+            if (!name || !text) {
+                alert('Name and prompt text are required');
+                return;
+            }
+            
+            if (!currentPromptId) {
+                alert('Select a prompt first or click "+ New Prompt"');
+                return;
+            }
+            
+            try {
+                const res = await fetch(`/api/touchup-prompts/${currentPromptId}`, {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({name, prompt_text: text, description: ''})
+                });
+                if (!res.ok) throw new Error('Failed to update');
+                await loadPrompts();
+                alert('Prompt saved!');
+            } catch (e) {
+                alert('Error saving prompt: ' + e.message);
+            }
         }
         
         async function savePrompt() {
