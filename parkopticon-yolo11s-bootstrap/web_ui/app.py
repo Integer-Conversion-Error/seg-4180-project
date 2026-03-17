@@ -1922,12 +1922,12 @@ def _compose_touchup_prompt(change_request: str, provider: ImageProvider) -> str
     return (
         "You are a photorealistic image compositor performing a targeted touch-up on a synthetic street scene. "
         "The scene already contains a synthetically inserted enforcement or police vehicle. "
-        "Your task is described below — execute it with physical accuracy and photographic realism. "
+        "Your task is described below - execute it with physical accuracy and photographic realism. "
         f"Task: {change_request} "
         "Preserve the following invariants: "
-        "(1) Vehicle identity — the vehicle's class, livery, markings, and position must remain unchanged. "
-        "(2) Scene integrity — do not alter camera pose, geometry, vanishing points, background elements, or any pixel outside the scope defined by the task. "
-        "(3) Output dimensions — return an image with exactly the same width and height as the input. "
+        "(1) Vehicle identity - the vehicle's class, livery, markings, and position must remain unchanged. "
+        "(2) Scene integrity - do not alter camera pose, geometry, vanishing points, background elements, or any pixel outside the scope defined by the task. "
+        "(3) Output dimensions - return an image with exactly the same width and height as the input. "
         "Apply your understanding of real-world optics and scene geometry to produce a result that is physically plausible and visually seamless."
     )
 
@@ -1978,8 +1978,8 @@ def synth_touchup(req: TouchupRequest):
             "This image contains a synthetically inserted enforcement vehicle (parking enforcement, bylaw, or police cruiser). "
             "Your task: correct the lighting, exposure, and color-temperature on that enforcement vehicle so it matches the lighting conditions at its exact position in the scene. "
             "Critical: the vehicle may be sitting inside a cast shadow from a tree, building, or other object. "
-            "If the road surface and surroundings immediately around the vehicle are dark or shaded, the vehicle must also appear dark and shaded to that same degree — do not brighten it to match the sunlit parts of the scene. "
-            "Infer local illumination from the surroundings — road surface tone, nearby ground, immediate area — not from the brightest or most representative parts of the image. "
+            "If the road surface and surroundings immediately around the vehicle are dark or shaded, the vehicle must also appear dark and shaded to that same degree - do not brighten it to match the sunlit parts of the scene. "
+            "Infer local illumination from the surroundings - road surface tone, nearby ground, immediate area - not from the brightest or most representative parts of the image. "
             "The background is ground truth and must not change. Only the vehicle's surface shading, exposure, and color temperature should be adjusted to be consistent with the local lighting where it sits."
         )
     else:
