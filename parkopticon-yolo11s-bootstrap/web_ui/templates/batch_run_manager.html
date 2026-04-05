@@ -1,0 +1,1614 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Batch Run Manager</title>
+  <style>
+    :root {
+      --bg: #eef2f7;
+      --panel: #ffffff;
+      --line: #d7dee8;
+      --ink: #182331;
+      --muted: #5d6b7a;
+      --brand: #0f5ec7;
+      --brand-soft: #e8f1ff;
+      --ok: #0f7a38;
+      --warn: #9a6400;
+      --bad: #b42318;
+      --code-bg: #0d1522;
+      --code-ink: #d8e1ee;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 18px;
+      font-family: "Segoe UI", Tahoma, Helvetica, Arial, sans-serif;
+      background: radial-gradient(circle at top right, #f5f8ff 0%, var(--bg) 45%);
+      color: var(--ink);
+    }
+
+    .container {
+      max-width: 1380px;
+      margin: 0 auto;
+      display: grid;
+      gap: 14px;
+    }
+
+    .back-link {
+      display: inline-block;
+      color: var(--brand);
+      text-decoration: none;
+      font-weight: 600;
+      margin-bottom: 2px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 1.55rem;
+      line-height: 1.2;
+    }
+
+    h2 {
+      margin: 0;
+      font-size: 1.02rem;
+      line-height: 1.2;
+    }
+
+    .lead {
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 14px;
+      box-shadow: 0 5px 20px rgba(10, 25, 45, 0.04);
+    }
+
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 10px;
+      flex-wrap: wrap;
+    }
+
+    .row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 8px;
+    }
+
+    .row:last-child { margin-bottom: 0; }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+      gap: 12px;
+    }
+
+    .field-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+      gap: 8px;
+    }
+
+    .field {
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+    }
+
+    .field label {
+      font-size: 0.78rem;
+      color: var(--muted);
+      font-weight: 600;
+      letter-spacing: 0.01em;
+    }
+
+    input[type="text"],
+    input[type="number"],
+    select,
+    textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 7px 9px;
+      font: inherit;
+      background: #fff;
+      color: var(--ink);
+    }
+
+    textarea {
+      resize: vertical;
+      min-height: 120px;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    button {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #f8fafc;
+      color: var(--ink);
+      padding: 7px 11px;
+      font: inherit;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    button:hover {
+      border-color: #b8c8dc;
+      background: #eef4fb;
+    }
+
+    button.primary {
+      border-color: #0e4fa6;
+      background: var(--brand);
+      color: #fff;
+    }
+
+    button.primary:hover {
+      background: #0d54b1;
+    }
+
+    .toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 0.88rem;
+      font-weight: 600;
+    }
+
+    .status-line {
+      margin-top: 4px;
+      font-weight: 700;
+      font-size: 0.88rem;
+      color: var(--muted);
+    }
+
+    .status-line.error { color: var(--bad); }
+    .status-line.ok { color: var(--ok); }
+
+    .job-list {
+      display: grid;
+      gap: 10px;
+      margin-top: 8px;
+    }
+
+    .job-card {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px;
+      background: #fbfcfe;
+      display: grid;
+      gap: 8px;
+    }
+
+    .job-card details {
+      border: 1px solid #dfe6f0;
+      border-radius: 8px;
+      background: #fff;
+      padding: 8px;
+    }
+
+    .job-card summary {
+      font-weight: 700;
+      cursor: pointer;
+      color: #2a3a4f;
+      margin-bottom: 6px;
+    }
+
+    .job-meta {
+      color: var(--muted);
+      font-size: 0.82rem;
+      font-weight: 600;
+    }
+
+    .badge {
+      display: inline-block;
+      border-radius: 999px;
+      padding: 2px 8px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+
+    .queued { background: #fff1ce; color: var(--warn); }
+    .running { background: #e3edff; color: #1b4db8; }
+    .completed { background: #dcf7e5; color: var(--ok); }
+    .failed { background: #fde7e5; color: var(--bad); }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.84rem;
+    }
+
+    th, td {
+      text-align: left;
+      padding: 8px;
+      border-bottom: 1px solid #e5ebf3;
+      vertical-align: top;
+    }
+
+    th {
+      color: #425468;
+      font-weight: 700;
+      background: #f8fafd;
+    }
+
+    pre {
+      margin: 0;
+      max-height: 420px;
+      overflow: auto;
+      background: var(--code-bg);
+      color: var(--code-ink);
+      border-radius: 10px;
+      border: 1px solid #1e2f4b;
+      padding: 12px;
+      white-space: pre-wrap;
+      line-height: 1.35;
+      font-size: 12px;
+      font-family: Consolas, "Courier New", monospace;
+    }
+
+    .subtle { color: var(--muted); font-size: 0.84rem; }
+
+    .heading-with-help {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .help-icon {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 17px;
+      height: 17px;
+      border-radius: 50%;
+      border: 1px solid #b8c7da;
+      background: #f4f8ff;
+      color: #21476f;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: help;
+      user-select: none;
+      line-height: 1;
+    }
+
+    .help-icon::after {
+      content: attr(data-tip);
+      position: absolute;
+      z-index: 20;
+      bottom: calc(100% + 8px);
+      left: 50%;
+      transform: translateX(-50%) translateY(4px);
+      width: 260px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: 1px solid #23354d;
+      background: #101d31;
+      color: #ecf2fb;
+      font-size: 12px;
+      line-height: 1.35;
+      text-align: left;
+      white-space: normal;
+      box-shadow: 0 8px 24px rgba(8, 18, 33, 0.35);
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 140ms ease, transform 140ms ease;
+    }
+
+    .help-icon::before {
+      content: "";
+      position: absolute;
+      bottom: calc(100% + 2px);
+      left: 50%;
+      transform: translateX(-50%);
+      border: 6px solid transparent;
+      border-top-color: #101d31;
+      opacity: 0;
+      transition: opacity 140ms ease;
+      pointer-events: none;
+    }
+
+    .help-icon:hover::after,
+    .help-icon:focus-visible::after,
+    .help-icon:hover::before,
+    .help-icon:focus-visible::before {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    .quick-steps {
+      margin: 0;
+      padding-left: 20px;
+      color: var(--muted);
+      display: grid;
+      gap: 5px;
+      font-size: 0.88rem;
+    }
+
+    .quick-steps strong {
+      color: #24405f;
+    }
+
+    .req-star {
+      color: #d11f2f;
+      font-weight: 800;
+      margin-left: 2px;
+    }
+
+    .defaults-note {
+      margin-top: 8px;
+      padding: 8px 10px;
+      border: 1px dashed #cdd9e8;
+      border-radius: 8px;
+      background: #f8fbff;
+      color: #4f647a;
+      font-size: 0.8rem;
+      line-height: 1.35;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <a href="/" class="back-link">&larr; Back to Tools</a>
+
+    <div class="panel">
+      <h1>Batch Run Manager</h1>
+      <p class="lead">Build nested split+train plans with forms, generate epoch sweeps, run split-only jobs, and stream live logs.</p>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">
+        <h2 class="heading-with-help">Quick Start
+          <span class="help-icon" tabindex="0" data-tip="Hover any ? icon in the page for focused guidance on that control.">?</span>
+        </h2>
+      </div>
+      <ol class="quick-steps">
+        <li><strong>Select Run Directory:</strong> choose the run folder you want to work in.</li>
+        <li><strong>Set defaults:</strong> fill split and training defaults once.</li>
+        <li><strong>Add jobs:</strong> create one or many training jobs in the Training Jobs section.</li>
+        <li><strong>Optional sweep:</strong> choose <em>Epochs</em> or <em>Save Period</em>, then enter values like `50,100,200`.</li>
+        <li><strong>Save and run:</strong> save the plan, then click <em>Run Batch Plan</em>.</li>
+        <li><strong>Monitor output:</strong> watch the Live Log panel for streaming CLI output.</li>
+      </ol>
+      <div class="defaults-note">
+        <strong>Legend:</strong> <span class="req-star">*</span> means required for that action.
+        If a field is left blank, hover its <strong>?</strong> tooltip to see what default value or fallback behavior is applied.
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">
+        <h2 class="heading-with-help">Working Directory
+          <span class="help-icon" tabindex="0" data-tip="Choose the run directory that contains your manifests and data folders. All relative paths in this page are resolved from that directory.">?</span>
+        </h2>
+      </div>
+      <div class="row">
+        <label class="subtle" for="dirSelect">Run Directory <span class="req-star">*</span> <span class="help-icon" tabindex="0" data-tip="Required. Switching directory reloads defaults and plan context for that run.">?</span></label>
+        <select id="dirSelect"><option value="">Loading...</option></select>
+        <span id="currentDir" class="job-meta"></span>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">
+        <h2 class="heading-with-help">Plan Controls
+          <span class="help-icon" tabindex="0" data-tip="Load, save, delete, and run plans from this section. Running starts one sequential batch job.">?</span>
+        </h2>
+      </div>
+      <div class="row">
+        <label class="subtle" for="planSelect">Saved Plan <span class="req-star">*</span> <span class="help-icon" tabindex="0" data-tip="Required for Load/Delete actions. Select a saved plan then click Load.">?</span></label>
+        <select id="planSelect">
+          <option value="">(none)</option>
+        </select>
+        <button id="reloadPlansBtn" type="button">Reload</button>
+        <button id="loadPlanBtn" type="button">Load</button>
+        <button id="loadTemplateBtn" type="button">Template</button>
+      </div>
+      <div class="row">
+        <label class="subtle" for="planNameInput">Plan Name <span class="req-star">*</span> <span class="help-icon" tabindex="0" data-tip="Required when saving a plan. If blank while running inline, an adhoc name is auto-generated.">?</span></label>
+        <input id="planNameInput" type="text" placeholder="benchmark_epoch_sweep_v1" />
+        <button id="savePlanBtn" type="button">Save Plan</button>
+        <button id="deletePlanBtn" type="button">Delete Plan</button>
+        <label class="toggle"><input id="runDryToggle" type="checkbox" /> Dry Run <span class="help-icon" tabindex="0" data-tip="Prints commands without executing split/train scripts.">?</span></label>
+        <label class="toggle"><input id="runContinueToggle" type="checkbox" /> Continue On Error <span class="help-icon" tabindex="0" data-tip="If enabled, later jobs still run after a failed job.">?</span></label>
+        <button id="runPlanBtn" type="button" class="primary">Run Batch Plan</button>
+      </div>
+      <div id="statusText" class="status-line">Ready.</div>
+    </div>
+
+    <div class="grid-2">
+      <div class="panel">
+        <div class="panel-header">
+          <h2 class="heading-with-help">Plan Paths
+            <span class="help-icon" tabindex="0" data-tip="These paths define where manifests, labels, split outputs, model outputs, and reports are read/written.">?</span>
+          </h2>
+        </div>
+        <div class="field-grid">
+          <div class="field"><label for="manifestInput">Manifest <span class="help-icon" tabindex="0" data-tip="If blank, defaults to manifests/images.csv.">?</span></label><input id="manifestInput" type="text" /></div>
+          <div class="field"><label for="labelsDirInput">Labels Dir <span class="help-icon" tabindex="0" data-tip="If blank, defaults to data/labels_autogen.">?</span></label><input id="labelsDirInput" type="text" /></div>
+          <div class="field"><label for="labelsFinalDirInput">Labels Final Dir <span class="help-icon" tabindex="0" data-tip="If blank, defaults to data/labels_final.">?</span></label><input id="labelsFinalDirInput" type="text" /></div>
+          <div class="field"><label for="splitRootInput">Split Root <span class="help-icon" tabindex="0" data-tip="If blank, defaults to data/splits/batch. Each batch job writes to a unique child folder.">?</span></label><input id="splitRootInput" type="text" /></div>
+          <div class="field"><label for="trainProjectInput">Train Project <span class="help-icon" tabindex="0" data-tip="If blank, defaults to runs/detect.">?</span></label><input id="trainProjectInput" type="text" /></div>
+          <div class="field"><label for="datasetTemplateInput">Dataset Template <span class="help-icon" tabindex="0" data-tip="Optional. If blank, manager tries run_dir/data/splits/data.yaml, then repo dataset.yaml.">?</span></label><input id="datasetTemplateInput" type="text" placeholder="optional" /></div>
+          <div class="field"><label for="registryPathInput">Registry Path <span class="help-icon" tabindex="0" data-tip="If blank, defaults to reports/training_run_registry.jsonl.">?</span></label><input id="registryPathInput" type="text" /></div>
+          <div class="field"><label for="batchReportsRootInput">Batch Reports Root <span class="help-icon" tabindex="0" data-tip="If blank, defaults to reports/batch_runs.">?</span></label><input id="batchReportsRootInput" type="text" /></div>
+        </div>
+        <div class="defaults-note">Any blank path field here is auto-filled with a safe default path shown in its tooltip.</div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <h2 class="heading-with-help">Default Split Configuration
+            <span class="help-icon" tabindex="0" data-tip="These values are inherited by every job unless that job overrides them in Split Overrides.">?</span>
+          </h2>
+        </div>
+        <div class="field-grid">
+          <div class="field"><label for="defaultTrainRatio">Train Ratio <span class="help-icon" tabindex="0" data-tip="Optional. If blank, split script default ratio is used.">?</span></label><input id="defaultTrainRatio" type="number" step="0.001" /></div>
+          <div class="field"><label for="defaultValRatio">Val Ratio <span class="help-icon" tabindex="0" data-tip="Optional. If blank, split script default ratio is used.">?</span></label><input id="defaultValRatio" type="number" step="0.001" /></div>
+          <div class="field"><label for="defaultTestRatio">Test Ratio <span class="help-icon" tabindex="0" data-tip="Optional. If blank, split script default ratio is used.">?</span></label><input id="defaultTestRatio" type="number" step="0.001" /></div>
+          <div class="field"><label for="defaultSplitSeed">Seed <span class="help-icon" tabindex="0" data-tip="Optional. If blank, split script default seed is used.">?</span></label><input id="defaultSplitSeed" type="number" step="1" /></div>
+          <div class="field"><label for="defaultMinVal">Min Enforcement Val <span class="help-icon" tabindex="0" data-tip="Optional minimum in validation split; blank uses split script default.">?</span></label><input id="defaultMinVal" type="number" step="1" /></div>
+          <div class="field"><label for="defaultMinTest">Min Enforcement Test <span class="help-icon" tabindex="0" data-tip="Optional minimum in test split; blank uses split script default.">?</span></label><input id="defaultMinTest" type="number" step="1" /></div>
+        </div>
+        <div class="row">
+          <label class="toggle"><input id="defaultSkipThreshold" type="checkbox" /> Skip Threshold Check <span class="help-icon" tabindex="0" data-tip="Unchecked by default.">?</span></label>
+          <label class="toggle"><input id="defaultIncludeRejectedSplit" type="checkbox" /> Include Rejected <span class="help-icon" tabindex="0" data-tip="Unchecked by default. Enable only when you intentionally want rejected rows included.">?</span></label>
+          <div class="field" style="flex:1; min-width:260px;"><label for="defaultSplitExtraArgs">Split Extra Args <span class="help-icon" tabindex="0" data-tip="Optional extra CLI args for split. Reserved core flags are blocked.">?</span></label><input id="defaultSplitExtraArgs" type="text" placeholder="optional" /></div>
+        </div>
+        <div class="defaults-note">Blank values here are omitted and each split run falls back to defaults defined by the split script.</div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <h2 class="heading-with-help">Default Training Configuration
+            <span class="help-icon" tabindex="0" data-tip="Base training settings for all jobs. Use per-job fields to override individual experiments.">?</span>
+          </h2>
+        </div>
+        <div class="field-grid">
+          <div class="field">
+            <label for="defaultModelSize">Model Size <span class="help-icon" tabindex="0" data-tip="Pick n/s/m/l/x for YOLO11 model size. Smaller is faster/lighter.">?</span></label>
+            <select id="defaultModelSize">
+              <option value="">(use script default)</option>
+              <option value="n">n</option>
+              <option value="s">s</option>
+              <option value="m">m</option>
+              <option value="l">l</option>
+              <option value="x">x</option>
+            </select>
+          </div>
+          <div class="field"><label for="defaultModelPath">Model Path <span class="help-icon" tabindex="0" data-tip="Optional checkpoint path. If blank, model_size is used; if both blank, fallback is yolo11s.pt.">?</span></label><input id="defaultModelPath" type="text" placeholder="optional" /></div>
+          <div class="field"><label for="defaultEpochs">Epochs <span class="help-icon" tabindex="0" data-tip="Set default epoch count used by jobs unless overridden. If blank, default fallback is 300.">?</span></label><input id="defaultEpochs" type="number" step="1" /></div>
+          <div class="field"><label for="defaultSavePeriod">Save Period <span class="help-icon" tabindex="0" data-tip="If blank, defaults to 10 (save checkpoint every 10 epochs).">?</span></label><input id="defaultSavePeriod" type="number" step="1" /></div>
+          <div class="field"><label for="defaultImgsz">Image Size <span class="help-icon" tabindex="0" data-tip="If blank, defaults to 640.">?</span></label><input id="defaultImgsz" type="number" step="1" /></div>
+          <div class="field"><label for="defaultBatch">Batch <span class="help-icon" tabindex="0" data-tip="If blank, training uses auto batch behavior.">?</span></label><input id="defaultBatch" type="number" step="1" /></div>
+          <div class="field"><label for="defaultDevice">Device <span class="help-icon" tabindex="0" data-tip="If blank, defaults to GPU device 0.">?</span></label><input id="defaultDevice" type="text" /></div>
+          <div class="field"><label for="defaultMetadataPath">Metadata Path <span class="help-icon" tabindex="0" data-tip="Optional custom metadata output path.">?</span></label><input id="defaultMetadataPath" type="text" placeholder="optional" /></div>
+          <div class="field"><label for="defaultTrainExtraArgs">Train Extra Args <span class="help-icon" tabindex="0" data-tip="Optional extra CLI args for training. Reserved core flags are blocked.">?</span></label><input id="defaultTrainExtraArgs" type="text" placeholder="optional" /></div>
+        </div>
+        <div class="row">
+          <label class="toggle"><input id="defaultResume" type="checkbox" /> Resume <span class="help-icon" tabindex="0" data-tip="Unchecked by default.">?</span></label>
+          <label class="toggle"><input id="defaultIncludeRejectedTrain" type="checkbox" /> Include Rejected <span class="help-icon" tabindex="0" data-tip="Unchecked by default. Enable only if you intentionally allow rejected rows in training safety checks.">?</span></label>
+          <label class="toggle"><input id="defaultCountLookalikeAsVehicle" type="checkbox" /> Count Lookalike As Vehicle <span class="help-icon" tabindex="0" data-tip="If enabled, training remaps class 4 (lookalike_negative) to class 0 (vehicle) for this run.">?</span></label>
+        </div>
+        <div class="defaults-note">If a training field is blank, jobs inherit batch-manager defaults: model fallback <strong>yolo11s.pt</strong>, epochs <strong>300</strong>, save period <strong>10</strong>, imgsz <strong>640</strong>, device <strong>GPU 0</strong>, auto batch when unset.</div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <h2 class="heading-with-help">Run Split Only
+            <span class="help-icon" tabindex="0" data-tip="Run only scripts/06_split_dataset.py from this page without launching training.">?</span>
+          </h2>
+        </div>
+        <div class="field-grid">
+          <div class="field"><label for="splitRunName">Split Run Name <span class="help-icon" tabindex="0" data-tip="Label shown in Jobs table and used in default split output folder name.">?</span></label><input id="splitRunName" type="text" placeholder="manual_split_a" /></div>
+          <div class="field"><label for="splitOutDir">Out Dir <span class="help-icon" tabindex="0" data-tip="If blank, defaults to data/splits/manual/split_now.">?</span></label><input id="splitOutDir" type="text" /></div>
+          <div class="field"><label for="splitManifest">Manifest <span class="help-icon" tabindex="0" data-tip="If blank, defaults to manifests/images.csv.">?</span></label><input id="splitManifest" type="text" /></div>
+          <div class="field"><label for="splitLabelsDir">Labels Dir <span class="help-icon" tabindex="0" data-tip="If blank, defaults to data/labels_autogen.">?</span></label><input id="splitLabelsDir" type="text" /></div>
+          <div class="field"><label for="splitLabelsFinalDir">Labels Final Dir <span class="help-icon" tabindex="0" data-tip="If blank, defaults to data/labels_final.">?</span></label><input id="splitLabelsFinalDir" type="text" /></div>
+          <div class="field"><label for="splitTrainRatio">Train Ratio <span class="help-icon" tabindex="0" data-tip="Optional override; blank uses split script default.">?</span></label><input id="splitTrainRatio" type="number" step="0.001" /></div>
+          <div class="field"><label for="splitValRatio">Val Ratio <span class="help-icon" tabindex="0" data-tip="Optional override; blank uses split script default.">?</span></label><input id="splitValRatio" type="number" step="0.001" /></div>
+          <div class="field"><label for="splitTestRatio">Test Ratio <span class="help-icon" tabindex="0" data-tip="Optional override; blank uses split script default.">?</span></label><input id="splitTestRatio" type="number" step="0.001" /></div>
+          <div class="field"><label for="splitSeed">Seed <span class="help-icon" tabindex="0" data-tip="Optional override; blank uses split script default seed.">?</span></label><input id="splitSeed" type="number" step="1" /></div>
+          <div class="field"><label for="splitMinVal">Min Enforcement Val <span class="help-icon" tabindex="0" data-tip="Optional override; blank uses split script default.">?</span></label><input id="splitMinVal" type="number" step="1" /></div>
+          <div class="field"><label for="splitMinTest">Min Enforcement Test <span class="help-icon" tabindex="0" data-tip="Optional override; blank uses split script default.">?</span></label><input id="splitMinTest" type="number" step="1" /></div>
+          <div class="field"><label for="splitExtraArgs">Split Extra Args <span class="help-icon" tabindex="0" data-tip="Optional extra args. Reserved core flags are blocked.">?</span></label><input id="splitExtraArgs" type="text" placeholder="optional" /></div>
+        </div>
+        <div class="row">
+          <label class="toggle"><input id="splitSkipThreshold" type="checkbox" /> Skip Threshold Check <span class="help-icon" tabindex="0" data-tip="Unchecked by default.">?</span></label>
+          <label class="toggle"><input id="splitIncludeRejected" type="checkbox" /> Include Rejected <span class="help-icon" tabindex="0" data-tip="Unchecked by default.">?</span></label>
+          <button id="copyPlanSplitBtn" type="button">Use Plan Defaults</button>
+          <button id="runSplitBtn" type="button">Run Split Only</button>
+        </div>
+        <div class="defaults-note">Split-only runs can be launched with most fields blank; defaults are applied automatically as described in tooltips.</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">
+        <h2 class="heading-with-help">Training Jobs
+          <span class="help-icon" tabindex="0" data-tip="Each job becomes one sequential split+train run. Use Duplicate for quick variations.">?</span>
+        </h2>
+        <div class="row" style="margin:0;">
+          <button id="addJobBtn" type="button">Add Job</button>
+          <button id="clearJobsBtn" type="button">Clear Jobs</button>
+        </div>
+      </div>
+
+      <div class="panel" style="padding:10px; border-radius:10px; margin-bottom:10px;">
+        <div class="panel-header" style="margin-bottom:8px;">
+          <h2 class="heading-with-help">Sweep Builder
+            <span class="help-icon" tabindex="0" data-tip="Generate many jobs at once from a single source setup by sweeping either epochs or save period values.">?</span>
+          </h2>
+        </div>
+        <div class="field-grid">
+          <div class="field"><label for="sweepSourceJob">Source Job <span class="help-icon" tabindex="0" data-tip="If '(new jobs from defaults)' is selected, sweep jobs start from default split/train config.">?</span></label><select id="sweepSourceJob"></select></div>
+          <div class="field"><label for="sweepPrefix">Name Prefix <span class="help-icon" tabindex="0" data-tip="If blank, defaults to 'sweep'.">?</span></label><input id="sweepPrefix" type="text" placeholder="baseline" /></div>
+          <div class="field"><label for="sweepType">Sweep Type <span class="req-star">*</span> <span class="help-icon" tabindex="0" data-tip="Choose whether to sweep epoch count or save period.">?</span></label><select id="sweepType"><option value="epochs">Epochs</option><option value="save_period">Save Period</option></select></div>
+          <div class="field"><label for="sweepValues">Values (comma-separated) <span class="req-star">*</span> <span class="help-icon" tabindex="0" data-tip="Required. Example: 50,100,200. Values must be positive integers.">?</span></label><input id="sweepValues" type="text" placeholder="50,100,200" /></div>
+        </div>
+        <div class="row">
+          <button id="addSweepBtn" type="button">Add Sweep Jobs</button>
+          <span class="subtle">Adds one training job per value using the same split + train setup as the source job.</span>
+        </div>
+      </div>
+
+      <div id="jobsContainer" class="job-list"></div>
+      <div class="defaults-note">Per-job fields can be left blank. Blank values inherit from Default Split/Training sections. If still unset, script-level fallbacks apply.</div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">
+        <h2 class="heading-with-help">Advanced JSON
+          <span class="help-icon" tabindex="0" data-tip="Power-user mode. Sync builder to JSON, edit manually, then apply back to forms.">?</span>
+        </h2>
+      </div>
+      <div class="row">
+        <button id="syncJsonBtn" type="button">Sync Builder to JSON</button>
+        <button id="applyJsonBtn" type="button">Apply JSON to Builder</button>
+      </div>
+      <textarea id="rawJsonEditor" spellcheck="false"></textarea>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">
+        <h2 class="heading-with-help">Jobs
+          <span class="help-icon" tabindex="0" data-tip="Shows batch and split jobs launched from this UI for the current run directory.">?</span>
+        </h2>
+        <button id="refreshJobsBtn" type="button">Refresh Jobs</button>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Job</th>
+            <th>Type</th>
+            <th>Status</th>
+            <th>Plan</th>
+            <th>Created</th>
+            <th>Finished</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="jobsBody">
+          <tr><td colspan="7" class="subtle">No jobs yet.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">
+        <h2 class="heading-with-help">Live Log
+          <span class="help-icon" tabindex="0" data-tip="This is a live stream of CLI stdout/stderr. It is not an interactive shell, but updates in real time.">?</span>
+        </h2>
+        <span id="activeJobLabel" class="job-meta">No job selected</span>
+      </div>
+      <pre id="jobLog">Select or start a job to stream output.</pre>
+    </div>
+  </div>
+
+  <script>
+    const dirSelect = document.getElementById('dirSelect');
+    const currentDir = document.getElementById('currentDir');
+    const planSelect = document.getElementById('planSelect');
+    const planNameInput = document.getElementById('planNameInput');
+    const statusText = document.getElementById('statusText');
+    const jobsContainer = document.getElementById('jobsContainer');
+    const jobsBody = document.getElementById('jobsBody');
+    const jobLog = document.getElementById('jobLog');
+    const activeJobLabel = document.getElementById('activeJobLabel');
+    const sweepSourceJob = document.getElementById('sweepSourceJob');
+    const sweepType = document.getElementById('sweepType');
+    const rawJsonEditor = document.getElementById('rawJsonEditor');
+    const runDryToggle = document.getElementById('runDryToggle');
+    const runContinueToggle = document.getElementById('runContinueToggle');
+
+    let currentRunDirPath = '';
+    let jobsState = [];
+    let activeJobId = '';
+    let logStream = null;
+
+    const modelSizeOptions = ['', 'n', 's', 'm', 'l', 'x'];
+
+    function setStatus(message, isError = false) {
+      statusText.textContent = message;
+      statusText.classList.toggle('error', !!isError);
+      statusText.classList.toggle('ok', !isError);
+    }
+
+    async function fetchJson(url, options) {
+      const response = await fetch(url, options || {});
+      if (!response.ok) {
+        let detail = `${response.status} ${response.statusText}`;
+        try {
+          const payload = await response.json();
+          if (payload && payload.detail) {
+            detail = payload.detail;
+          }
+        } catch (err) {
+        }
+        throw new Error(detail);
+      }
+      return response.json();
+    }
+
+    function deepClone(value) {
+      return JSON.parse(JSON.stringify(value));
+    }
+
+    function escapeHtml(value) {
+      return String(value || '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#039;');
+    }
+
+    function asNumber(value, integer = false) {
+      const cleaned = String(value ?? '').trim();
+      if (!cleaned) {
+        return null;
+      }
+      const parsed = integer ? Number.parseInt(cleaned, 10) : Number.parseFloat(cleaned);
+      if (!Number.isFinite(parsed)) {
+        return null;
+      }
+      return parsed;
+    }
+
+    function setInputValue(id, value) {
+      const input = document.getElementById(id);
+      if (!input) {
+        return;
+      }
+      input.value = value == null ? '' : String(value);
+    }
+
+    function setCheckboxValue(id, value) {
+      const input = document.getElementById(id);
+      if (!input) {
+        return;
+      }
+      input.checked = !!value;
+    }
+
+    function getString(id) {
+      const input = document.getElementById(id);
+      return input ? String(input.value || '').trim() : '';
+    }
+
+    function getBool(id) {
+      const input = document.getElementById(id);
+      return !!(input && input.checked);
+    }
+
+    function getNumber(id, integer = false) {
+      const input = document.getElementById(id);
+      if (!input) {
+        return null;
+      }
+      return asNumber(input.value, integer);
+    }
+
+    function putIfValue(target, key, value) {
+      if (value === null || value === undefined || value === '') {
+        return;
+      }
+      target[key] = value;
+    }
+
+    function cleanObject(value) {
+      if (Array.isArray(value)) {
+        const items = value
+          .map((item) => cleanObject(item))
+          .filter((item) => item !== null && item !== undefined);
+        return items;
+      }
+      if (value && typeof value === 'object') {
+        const out = {};
+        for (const [key, item] of Object.entries(value)) {
+          const cleaned = cleanObject(item);
+          const isEmptyObject = cleaned && typeof cleaned === 'object' && !Array.isArray(cleaned) && Object.keys(cleaned).length === 0;
+          if (cleaned === null || cleaned === undefined || cleaned === '' || isEmptyObject) {
+            continue;
+          }
+          out[key] = cleaned;
+        }
+        return out;
+      }
+      return value;
+    }
+
+    function normalizeJob(rawJob, index) {
+      const fallback = { name: `job_${index + 1}`, split: {}, train: {} };
+      if (!rawJob || typeof rawJob !== 'object') {
+        return fallback;
+      }
+      const split = rawJob.split && typeof rawJob.split === 'object' ? deepClone(rawJob.split) : {};
+      const train = rawJob.train && typeof rawJob.train === 'object' ? deepClone(rawJob.train) : {};
+      const name = String(rawJob.name || '').trim() || fallback.name;
+      return { name, split, train };
+    }
+
+    function readPlanFromBuilder() {
+      const splitDefaults = {};
+      putIfValue(splitDefaults, 'train_ratio', getNumber('defaultTrainRatio'));
+      putIfValue(splitDefaults, 'val_ratio', getNumber('defaultValRatio'));
+      putIfValue(splitDefaults, 'test_ratio', getNumber('defaultTestRatio'));
+      putIfValue(splitDefaults, 'seed', getNumber('defaultSplitSeed', true));
+      putIfValue(splitDefaults, 'min_enforcement_val', getNumber('defaultMinVal', true));
+      putIfValue(splitDefaults, 'min_enforcement_test', getNumber('defaultMinTest', true));
+      if (getBool('defaultSkipThreshold')) {
+        splitDefaults.skip_threshold_check = true;
+      }
+      if (getBool('defaultIncludeRejectedSplit')) {
+        splitDefaults.include_rejected = true;
+      }
+      putIfValue(splitDefaults, 'extra_args', getString('defaultSplitExtraArgs'));
+
+      const trainDefaults = {};
+      putIfValue(trainDefaults, 'model_size', getString('defaultModelSize'));
+      putIfValue(trainDefaults, 'model', getString('defaultModelPath'));
+      putIfValue(trainDefaults, 'epochs', getNumber('defaultEpochs', true));
+      putIfValue(trainDefaults, 'save_period', getNumber('defaultSavePeriod', true));
+      putIfValue(trainDefaults, 'imgsz', getNumber('defaultImgsz', true));
+      putIfValue(trainDefaults, 'batch', getNumber('defaultBatch', true));
+      putIfValue(trainDefaults, 'device', getString('defaultDevice'));
+      putIfValue(trainDefaults, 'metadata_path', getString('defaultMetadataPath'));
+      putIfValue(trainDefaults, 'extra_args', getString('defaultTrainExtraArgs'));
+      if (getBool('defaultResume')) {
+        trainDefaults.resume = true;
+      }
+      if (getBool('defaultIncludeRejectedTrain')) {
+        trainDefaults.include_rejected = true;
+      }
+      if (getBool('defaultCountLookalikeAsVehicle')) {
+        trainDefaults.count_lookalike_as_vehicle = true;
+      }
+
+      const config = {
+        run_dir: currentRunDirPath,
+        manifest: getString('manifestInput') || 'manifests/images.csv',
+        labels_dir: getString('labelsDirInput') || 'data/labels_autogen',
+        labels_final_dir: getString('labelsFinalDirInput') || 'data/labels_final',
+        split_root: getString('splitRootInput') || 'data/splits/batch',
+        train_project: getString('trainProjectInput') || 'runs/detect',
+        registry_path: getString('registryPathInput') || 'reports/training_run_registry.jsonl',
+        batch_reports_root: getString('batchReportsRootInput') || 'reports/batch_runs',
+        defaults: {
+          split: splitDefaults,
+          train: trainDefaults,
+        },
+        jobs: jobsState.map((job, index) => normalizeJob(job, index)),
+      };
+
+      const datasetTemplate = getString('datasetTemplateInput');
+      if (datasetTemplate) {
+        config.dataset_template = datasetTemplate;
+      }
+      if (runContinueToggle.checked) {
+        config.continue_on_error = true;
+      }
+
+      return cleanObject(config);
+    }
+
+    function applyPlanToBuilder(config) {
+      const plan = config && typeof config === 'object' ? deepClone(config) : {};
+
+      setInputValue('manifestInput', plan.manifest || 'manifests/images.csv');
+      setInputValue('labelsDirInput', plan.labels_dir || 'data/labels_autogen');
+      setInputValue('labelsFinalDirInput', plan.labels_final_dir || 'data/labels_final');
+      setInputValue('splitRootInput', plan.split_root || 'data/splits/batch');
+      setInputValue('trainProjectInput', plan.train_project || 'runs/detect');
+      setInputValue('datasetTemplateInput', plan.dataset_template || '');
+      setInputValue('registryPathInput', plan.registry_path || 'reports/training_run_registry.jsonl');
+      setInputValue('batchReportsRootInput', plan.batch_reports_root || 'reports/batch_runs');
+
+      const split = plan.defaults && plan.defaults.split && typeof plan.defaults.split === 'object' ? plan.defaults.split : {};
+      setInputValue('defaultTrainRatio', split.train_ratio);
+      setInputValue('defaultValRatio', split.val_ratio);
+      setInputValue('defaultTestRatio', split.test_ratio);
+      setInputValue('defaultSplitSeed', split.seed);
+      setInputValue('defaultMinVal', split.min_enforcement_val);
+      setInputValue('defaultMinTest', split.min_enforcement_test);
+      setCheckboxValue('defaultSkipThreshold', !!split.skip_threshold_check);
+      setCheckboxValue('defaultIncludeRejectedSplit', !!split.include_rejected);
+      setInputValue('defaultSplitExtraArgs', split.extra_args || '');
+
+      const train = plan.defaults && plan.defaults.train && typeof plan.defaults.train === 'object' ? plan.defaults.train : {};
+      setInputValue('defaultModelSize', train.model_size || '');
+      setInputValue('defaultModelPath', train.model || '');
+      setInputValue('defaultEpochs', train.epochs);
+      setInputValue('defaultSavePeriod', train.save_period);
+      setInputValue('defaultImgsz', train.imgsz);
+      setInputValue('defaultBatch', train.batch);
+      setInputValue('defaultDevice', train.device);
+      setInputValue('defaultMetadataPath', train.metadata_path || '');
+      setInputValue('defaultTrainExtraArgs', train.extra_args || '');
+      setCheckboxValue('defaultResume', !!train.resume);
+      setCheckboxValue('defaultIncludeRejectedTrain', !!train.include_rejected);
+      setCheckboxValue('defaultCountLookalikeAsVehicle', !!train.count_lookalike_as_vehicle);
+
+      setCheckboxValue('runContinueToggle', !!plan.continue_on_error);
+
+      const rawJobs = Array.isArray(plan.jobs) ? plan.jobs : [];
+      jobsState = rawJobs.map((job, index) => normalizeJob(job, index));
+      if (!jobsState.length) {
+        jobsState = [normalizeJob({}, 0)];
+      }
+      renderJobs();
+
+      setInputValue('splitRunName', '');
+      setInputValue('splitOutDir', 'data/splits/manual/split_now');
+      setInputValue('splitManifest', plan.manifest || 'manifests/images.csv');
+      setInputValue('splitLabelsDir', plan.labels_dir || 'data/labels_autogen');
+      setInputValue('splitLabelsFinalDir', plan.labels_final_dir || 'data/labels_final');
+      setInputValue('splitTrainRatio', split.train_ratio);
+      setInputValue('splitValRatio', split.val_ratio);
+      setInputValue('splitTestRatio', split.test_ratio);
+      setInputValue('splitSeed', split.seed);
+      setInputValue('splitMinVal', split.min_enforcement_val);
+      setInputValue('splitMinTest', split.min_enforcement_test);
+      setCheckboxValue('splitSkipThreshold', !!split.skip_threshold_check);
+      setCheckboxValue('splitIncludeRejected', !!split.include_rejected);
+      setInputValue('splitExtraArgs', split.extra_args || '');
+
+      rawJsonEditor.value = JSON.stringify(readPlanFromBuilder(), null, 2);
+    }
+
+    function setByPath(target, path, value) {
+      const keys = path.split('.');
+      let cursor = target;
+      for (let i = 0; i < keys.length - 1; i += 1) {
+        const key = keys[i];
+        if (!cursor[key] || typeof cursor[key] !== 'object') {
+          cursor[key] = {};
+        }
+        cursor = cursor[key];
+      }
+      cursor[keys[keys.length - 1]] = value;
+    }
+
+    function deleteByPath(target, path) {
+      const keys = path.split('.');
+      let cursor = target;
+      for (let i = 0; i < keys.length - 1; i += 1) {
+        cursor = cursor[keys[i]];
+        if (!cursor || typeof cursor !== 'object') {
+          return;
+        }
+      }
+      delete cursor[keys[keys.length - 1]];
+    }
+
+    function parseInputByKind(input) {
+      const kind = input.dataset.kind || 'string';
+      if (kind === 'bool') {
+        return !!input.checked;
+      }
+      if (kind === 'int') {
+        return asNumber(input.value, true);
+      }
+      if (kind === 'float') {
+        return asNumber(input.value, false);
+      }
+      return String(input.value || '').trim();
+    }
+
+    function renderJobs() {
+      jobsContainer.innerHTML = '';
+      if (!jobsState.length) {
+        jobsContainer.innerHTML = '<div class="subtle">No jobs. Add one or create a sweep.</div>';
+      }
+
+      jobsState.forEach((job, index) => {
+        const safeName = escapeHtml(job.name || `job_${index + 1}`);
+        const train = job.train || {};
+        const split = job.split || {};
+
+        const modelSize = escapeHtml(train.model_size || '');
+        const modelPath = escapeHtml(train.model || '');
+        const epochs = train.epochs == null ? '' : String(train.epochs);
+        const savePeriod = train.save_period == null ? '' : String(train.save_period);
+        const imgsz = train.imgsz == null ? '' : String(train.imgsz);
+        const batch = train.batch == null ? '' : String(train.batch);
+        const device = escapeHtml(train.device || '');
+        const metadataPath = escapeHtml(train.metadata_path || '');
+        const trainExtraArgs = escapeHtml(train.extra_args || '');
+
+        const trainRatio = split.train_ratio == null ? '' : String(split.train_ratio);
+        const valRatio = split.val_ratio == null ? '' : String(split.val_ratio);
+        const testRatio = split.test_ratio == null ? '' : String(split.test_ratio);
+        const splitSeed = split.seed == null ? '' : String(split.seed);
+        const minVal = split.min_enforcement_val == null ? '' : String(split.min_enforcement_val);
+        const minTest = split.min_enforcement_test == null ? '' : String(split.min_enforcement_test);
+        const splitExtraArgs = escapeHtml(split.extra_args || '');
+
+        const card = document.createElement('article');
+        card.className = 'job-card';
+        card.innerHTML = `
+          <div class="row">
+            <div class="field" style="flex:1; min-width:220px;">
+              <label>Job Name <span class="help-icon" tabindex="0" data-tip="Optional. If blank, a fallback name is generated. Final run names are timestamped to avoid collisions.">?</span></label>
+              <input type="text" value="${safeName}" data-path="name" data-kind="string" data-job-index="${index}" />
+            </div>
+            <div class="job-meta">#${index + 1}</div>
+            <button type="button" data-action="duplicate" data-job-index="${index}">Duplicate</button>
+            <button type="button" data-action="remove" data-job-index="${index}">Remove</button>
+          </div>
+
+          <div class="field-grid">
+            <div class="field">
+              <label>Model Size <span class="help-icon" tabindex="0" data-tip="Optional per job. If blank, inherits default model_size. If no model_path and no model_size anywhere, fallback is yolo11s.pt.">?</span></label>
+              <select data-path="train.model_size" data-kind="string" data-job-index="${index}">
+                ${modelSizeOptions.map((opt) => `<option value="${opt}" ${opt === modelSize ? 'selected' : ''}>${opt || '(default)'}</option>`).join('')}
+              </select>
+            </div>
+            <div class="field"><label>Model Path</label><input type="text" value="${modelPath}" data-path="train.model" data-kind="string" data-job-index="${index}" /></div>
+            <div class="field"><label>Epochs <span class="help-icon" tabindex="0" data-tip="Optional per job. If blank, inherits default epochs; if still unset, fallback is 300.">?</span></label><input type="number" step="1" value="${epochs}" data-path="train.epochs" data-kind="int" data-job-index="${index}" /></div>
+            <div class="field"><label>Save Period <span class="help-icon" tabindex="0" data-tip="Optional per job. If blank, inherits default save period; if still unset, fallback is 10.">?</span></label><input type="number" step="1" value="${savePeriod}" data-path="train.save_period" data-kind="int" data-job-index="${index}" /></div>
+            <div class="field"><label>Image Size</label><input type="number" step="1" value="${imgsz}" data-path="train.imgsz" data-kind="int" data-job-index="${index}" /></div>
+            <div class="field"><label>Batch</label><input type="number" step="1" value="${batch}" data-path="train.batch" data-kind="int" data-job-index="${index}" /></div>
+            <div class="field"><label>Device</label><input type="text" value="${device}" data-path="train.device" data-kind="string" data-job-index="${index}" /></div>
+          </div>
+
+          <div class="row">
+            <label class="toggle"><input type="checkbox" ${train.resume ? 'checked' : ''} data-path="train.resume" data-kind="bool" data-job-index="${index}" /> Resume</label>
+            <label class="toggle"><input type="checkbox" ${train.include_rejected ? 'checked' : ''} data-path="train.include_rejected" data-kind="bool" data-job-index="${index}" /> Include Rejected</label>
+            <label class="toggle"><input type="checkbox" ${train.count_lookalike_as_vehicle ? 'checked' : ''} data-path="train.count_lookalike_as_vehicle" data-kind="bool" data-job-index="${index}" /> Count Lookalike As Vehicle</label>
+          </div>
+
+          <details open>
+            <summary>Split Overrides <span class="help-icon" tabindex="0" data-tip="Override split ratios/seed for only this job. Leave blank to inherit default split config.">?</span></summary>
+            <div class="field-grid">
+              <div class="field"><label>Train Ratio</label><input type="number" step="0.001" value="${trainRatio}" data-path="split.train_ratio" data-kind="float" data-job-index="${index}" /></div>
+              <div class="field"><label>Val Ratio</label><input type="number" step="0.001" value="${valRatio}" data-path="split.val_ratio" data-kind="float" data-job-index="${index}" /></div>
+              <div class="field"><label>Test Ratio</label><input type="number" step="0.001" value="${testRatio}" data-path="split.test_ratio" data-kind="float" data-job-index="${index}" /></div>
+              <div class="field"><label>Seed</label><input type="number" step="1" value="${splitSeed}" data-path="split.seed" data-kind="int" data-job-index="${index}" /></div>
+              <div class="field"><label>Min Enforcement Val</label><input type="number" step="1" value="${minVal}" data-path="split.min_enforcement_val" data-kind="int" data-job-index="${index}" /></div>
+              <div class="field"><label>Min Enforcement Test</label><input type="number" step="1" value="${minTest}" data-path="split.min_enforcement_test" data-kind="int" data-job-index="${index}" /></div>
+            </div>
+            <div class="row">
+              <label class="toggle"><input type="checkbox" ${split.skip_threshold_check ? 'checked' : ''} data-path="split.skip_threshold_check" data-kind="bool" data-job-index="${index}" /> Skip Threshold Check</label>
+              <label class="toggle"><input type="checkbox" ${split.include_rejected ? 'checked' : ''} data-path="split.include_rejected" data-kind="bool" data-job-index="${index}" /> Include Rejected</label>
+            </div>
+          </details>
+
+          <details>
+            <summary>Advanced Args <span class="help-icon" tabindex="0" data-tip="Optional extra CLI args. Reserved core flags are blocked for safety.">?</span></summary>
+            <div class="field-grid">
+              <div class="field"><label>Train Metadata Path</label><input type="text" value="${metadataPath}" data-path="train.metadata_path" data-kind="string" data-job-index="${index}" /></div>
+              <div class="field"><label>Split Extra Args</label><input type="text" value="${splitExtraArgs}" data-path="split.extra_args" data-kind="string" data-job-index="${index}" /></div>
+              <div class="field"><label>Train Extra Args</label><input type="text" value="${trainExtraArgs}" data-path="train.extra_args" data-kind="string" data-job-index="${index}" /></div>
+            </div>
+          </details>
+        `;
+
+        card.querySelectorAll('[data-path][data-job-index]').forEach((input) => {
+          const eventType = input.dataset.kind === 'bool' ? 'change' : 'input';
+          input.addEventListener(eventType, () => {
+            const idx = Number.parseInt(input.dataset.jobIndex || '-1', 10);
+            if (idx < 0 || idx >= jobsState.length) {
+              return;
+            }
+            const path = input.dataset.path;
+            const kind = input.dataset.kind;
+            const value = parseInputByKind(input);
+            const shouldDelete = kind === 'bool' ? !value : (value === null || value === '');
+            if (shouldDelete) {
+              deleteByPath(jobsState[idx], path);
+            } else {
+              setByPath(jobsState[idx], path, value);
+            }
+            rawJsonEditor.value = JSON.stringify(readPlanFromBuilder(), null, 2);
+          });
+        });
+
+        card.querySelector('[data-action="duplicate"]').addEventListener('click', () => {
+          jobsState.splice(index + 1, 0, normalizeJob(deepClone(jobsState[index]), index + 1));
+          renderJobs();
+          rawJsonEditor.value = JSON.stringify(readPlanFromBuilder(), null, 2);
+        });
+
+        card.querySelector('[data-action="remove"]').addEventListener('click', () => {
+          jobsState.splice(index, 1);
+          if (!jobsState.length) {
+            jobsState.push(normalizeJob({}, 0));
+          }
+          renderJobs();
+          rawJsonEditor.value = JSON.stringify(readPlanFromBuilder(), null, 2);
+        });
+
+        jobsContainer.appendChild(card);
+      });
+
+      renderSweepSourceOptions();
+    }
+
+    function renderSweepSourceOptions() {
+      sweepSourceJob.innerHTML = '';
+      const defaultOption = document.createElement('option');
+      defaultOption.value = '-1';
+      defaultOption.textContent = '(new jobs from defaults)';
+      sweepSourceJob.appendChild(defaultOption);
+
+      jobsState.forEach((job, index) => {
+        const option = document.createElement('option');
+        option.value = String(index);
+        option.textContent = `${index + 1}. ${job.name || `job_${index + 1}`}`;
+        sweepSourceJob.appendChild(option);
+      });
+    }
+
+    function addNewJob() {
+      jobsState.push(normalizeJob({}, jobsState.length));
+      renderJobs();
+      rawJsonEditor.value = JSON.stringify(readPlanFromBuilder(), null, 2);
+    }
+
+    function addSweepJobs() {
+      const sourceIndex = Number.parseInt(String(sweepSourceJob.value || '-1'), 10);
+      const sweepPrefix = getString('sweepPrefix') || 'sweep';
+      const selectedSweepType = getString('sweepType') || 'epochs';
+      const valuesInput = getString('sweepValues');
+      if (!valuesInput) {
+        throw new Error('Sweep values are required. Example: 50,100,200');
+      }
+
+      const values = [...new Set(
+        valuesInput
+          .split(',')
+          .map((entry) => Number.parseInt(entry.trim(), 10))
+          .filter((entry) => Number.isFinite(entry) && entry > 0)
+      )];
+
+      if (!values.length) {
+        throw new Error('Sweep values are invalid. Example: 50,100,200');
+      }
+
+      const source = sourceIndex >= 0 && sourceIndex < jobsState.length
+        ? normalizeJob(deepClone(jobsState[sourceIndex]), sourceIndex)
+        : normalizeJob({}, jobsState.length);
+
+      for (const value of values) {
+        const job = normalizeJob(deepClone(source), jobsState.length);
+        if (!job.train || typeof job.train !== 'object') {
+          job.train = {};
+        }
+
+        if (selectedSweepType === 'save_period') {
+          job.name = `${sweepPrefix}_sp${value}`;
+          job.train.save_period = value;
+        } else {
+          job.name = `${sweepPrefix}_${value}e`;
+          job.train.epochs = value;
+        }
+
+        jobsState.push(job);
+      }
+
+      renderJobs();
+      rawJsonEditor.value = JSON.stringify(readPlanFromBuilder(), null, 2);
+    }
+
+    function collectSplitOnlyConfig() {
+      const config = {
+        name: getString('splitRunName'),
+        out_dir: getString('splitOutDir') || 'data/splits/manual/split_now',
+        manifest: getString('splitManifest') || 'manifests/images.csv',
+        labels_dir: getString('splitLabelsDir') || 'data/labels_autogen',
+        labels_final_dir: getString('splitLabelsFinalDir') || 'data/labels_final',
+      };
+
+      putIfValue(config, 'train_ratio', getNumber('splitTrainRatio'));
+      putIfValue(config, 'val_ratio', getNumber('splitValRatio'));
+      putIfValue(config, 'test_ratio', getNumber('splitTestRatio'));
+      putIfValue(config, 'seed', getNumber('splitSeed', true));
+      putIfValue(config, 'min_enforcement_val', getNumber('splitMinVal', true));
+      putIfValue(config, 'min_enforcement_test', getNumber('splitMinTest', true));
+      putIfValue(config, 'extra_args', getString('splitExtraArgs'));
+
+      if (getBool('splitSkipThreshold')) {
+        config.skip_threshold_check = true;
+      }
+      if (getBool('splitIncludeRejected')) {
+        config.include_rejected = true;
+      }
+
+      return cleanObject(config);
+    }
+
+    function copyPlanDefaultsToSplitRun() {
+      setInputValue('splitManifest', getString('manifestInput'));
+      setInputValue('splitLabelsDir', getString('labelsDirInput'));
+      setInputValue('splitLabelsFinalDir', getString('labelsFinalDirInput'));
+      setInputValue('splitOutDir', `${getString('splitRootInput') || 'data/splits/batch'}/manual_preview`);
+      setInputValue('splitTrainRatio', getString('defaultTrainRatio'));
+      setInputValue('splitValRatio', getString('defaultValRatio'));
+      setInputValue('splitTestRatio', getString('defaultTestRatio'));
+      setInputValue('splitSeed', getString('defaultSplitSeed'));
+      setInputValue('splitMinVal', getString('defaultMinVal'));
+      setInputValue('splitMinTest', getString('defaultMinTest'));
+      setCheckboxValue('splitSkipThreshold', getBool('defaultSkipThreshold'));
+      setCheckboxValue('splitIncludeRejected', getBool('defaultIncludeRejectedSplit'));
+      setInputValue('splitExtraArgs', getString('defaultSplitExtraArgs'));
+    }
+
+    async function loadDirectories() {
+      const [dirs, current] = await Promise.all([
+        fetchJson('/api/directories/list'),
+        fetchJson('/api/directories/current'),
+      ]);
+
+      dirSelect.innerHTML = '';
+      for (const dir of dirs) {
+        const option = document.createElement('option');
+        option.value = dir.path;
+        option.textContent = dir.label;
+        dirSelect.appendChild(option);
+      }
+
+      currentRunDirPath = String(current.path || '');
+      dirSelect.value = currentRunDirPath;
+      currentDir.textContent = currentRunDirPath ? `(${current.name})` : '';
+      currentDir.title = currentRunDirPath;
+    }
+
+    async function loadPlans(preferredName = '') {
+      const plans = await fetchJson('/api/batch-runs/plans');
+      planSelect.innerHTML = '<option value="">(none)</option>';
+      for (const plan of plans) {
+        const option = document.createElement('option');
+        option.value = plan.name;
+        const stamp = String(plan.updated_at || '').slice(0, 19).replace('T', ' ');
+        option.textContent = stamp ? `${plan.name} (${stamp})` : plan.name;
+        planSelect.appendChild(option);
+      }
+      if (preferredName) {
+        planSelect.value = preferredName;
+      }
+    }
+
+    async function loadTemplate() {
+      const template = await fetchJson('/api/batch-runs/template');
+      applyPlanToBuilder(template);
+      setStatus('Template loaded.', false);
+    }
+
+    async function loadSelectedPlan() {
+      const selected = getString('planSelect');
+      if (!selected) {
+        throw new Error('Select a plan first.');
+      }
+      const payload = await fetchJson(`/api/batch-runs/plans/${encodeURIComponent(selected)}`);
+      planNameInput.value = payload.name || selected;
+      applyPlanToBuilder(payload.config || {});
+      setStatus(`Loaded plan: ${selected}`, false);
+    }
+
+    async function savePlan() {
+      const planName = getString('planNameInput');
+      if (!planName) {
+        throw new Error('Plan name is required.');
+      }
+      const config = readPlanFromBuilder();
+      await fetchJson('/api/batch-runs/plans', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: planName, config }),
+      });
+      await loadPlans(planName);
+      setStatus(`Saved plan: ${planName}`, false);
+    }
+
+    async function deletePlan() {
+      const selected = getString('planSelect') || getString('planNameInput');
+      if (!selected) {
+        throw new Error('Choose a saved plan to delete.');
+      }
+      await fetchJson(`/api/batch-runs/plans/${encodeURIComponent(selected)}`, {
+        method: 'DELETE',
+      });
+      if (planNameInput.value.trim() === selected) {
+        planNameInput.value = '';
+      }
+      await loadPlans('');
+      setStatus(`Deleted plan: ${selected}`, false);
+    }
+
+    function closeLogStream() {
+      if (logStream) {
+        logStream.close();
+        logStream = null;
+      }
+    }
+
+    function appendLogChunk(chunkText) {
+      if (!chunkText) {
+        return;
+      }
+      const maxChars = 500000;
+      jobLog.textContent = `${jobLog.textContent}${chunkText}`;
+      if (jobLog.textContent.length > maxChars) {
+        jobLog.textContent = jobLog.textContent.slice(jobLog.textContent.length - maxChars);
+      }
+      jobLog.scrollTop = jobLog.scrollHeight;
+    }
+
+    function startLogStream(jobId) {
+      closeLogStream();
+      const stream = new EventSource(`/api/batch-runs/jobs/${encodeURIComponent(jobId)}/stream`);
+      logStream = stream;
+
+      stream.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(event.data || '{}');
+          if (payload && payload.chunk) {
+            appendLogChunk(payload.chunk);
+          }
+          if (payload && payload.status) {
+            activeJobLabel.textContent = `Active: ${jobId} (${payload.status})`;
+          }
+        } catch (err) {
+        }
+      };
+
+      stream.addEventListener('done', async (event) => {
+        try {
+          const payload = JSON.parse(event.data || '{}');
+          if (payload && payload.status) {
+            activeJobLabel.textContent = `Active: ${jobId} (${payload.status})`;
+          }
+        } catch (err) {
+        }
+        if (logStream === stream) {
+          closeLogStream();
+        }
+        await refreshJobs();
+      });
+
+      stream.onerror = () => {
+        if (logStream === stream) {
+          closeLogStream();
+        }
+      };
+    }
+
+    async function refreshActiveJobLog() {
+      if (!activeJobId) {
+        return;
+      }
+      const payload = await fetchJson(`/api/batch-runs/jobs/${encodeURIComponent(activeJobId)}/log?lines=700`);
+      jobLog.textContent = payload.text || '(log is empty)';
+      jobLog.scrollTop = jobLog.scrollHeight;
+    }
+
+    async function openJobLog(jobId, statusHint) {
+      activeJobId = jobId;
+      const labelStatus = statusHint || '';
+      activeJobLabel.textContent = `Active: ${jobId}${labelStatus ? ` (${labelStatus})` : ''}`;
+      await refreshActiveJobLog();
+      if (labelStatus === 'running' || labelStatus === 'queued') {
+        startLogStream(jobId);
+      } else {
+        closeLogStream();
+      }
+    }
+
+    function statusClassName(status) {
+      if (status === 'queued') {
+        return 'badge queued';
+      }
+      if (status === 'running') {
+        return 'badge running';
+      }
+      if (status === 'completed') {
+        return 'badge completed';
+      }
+      if (status === 'failed') {
+        return 'badge failed';
+      }
+      return 'badge';
+    }
+
+    async function refreshJobs() {
+      const jobs = await fetchJson('/api/batch-runs/jobs');
+      if (!jobs.length) {
+        closeLogStream();
+        jobsBody.innerHTML = '<tr><td colspan="7" class="subtle">No jobs yet.</td></tr>';
+        return;
+      }
+
+      jobsBody.innerHTML = '';
+      for (const job of jobs) {
+        const tr = document.createElement('tr');
+        const createdAt = String(job.created_at || '').replace('T', ' ').slice(0, 19);
+        const finishedAt = String(job.finished_at || '').replace('T', ' ').slice(0, 19);
+        tr.innerHTML = `
+          <td>${escapeHtml(job.id)}</td>
+          <td>${escapeHtml(job.kind || 'batch')}</td>
+          <td><span class="${statusClassName(job.status)}">${escapeHtml(job.status || '')}</span></td>
+          <td>${escapeHtml(job.plan_name || '')}</td>
+          <td>${escapeHtml(createdAt)}</td>
+          <td>${escapeHtml(finishedAt)}</td>
+          <td><button type="button">View Log</button></td>
+        `;
+
+        tr.querySelector('button').addEventListener('click', async () => {
+          await openJobLog(job.id, job.status || '');
+        });
+        jobsBody.appendChild(tr);
+      }
+
+      if (activeJobId) {
+        const activeJob = jobs.find((item) => item.id === activeJobId);
+        if (activeJob) {
+          const activeStatus = activeJob.status || '';
+          activeJobLabel.textContent = `Active: ${activeJob.id}${activeStatus ? ` (${activeStatus})` : ''}`;
+          if ((activeStatus === 'running' || activeStatus === 'queued') && !logStream) {
+            startLogStream(activeJob.id);
+          }
+          if (activeStatus !== 'running' && activeStatus !== 'queued' && logStream) {
+            closeLogStream();
+          }
+        }
+      }
+    }
+
+    async function runBatchPlanNow() {
+      const config = readPlanFromBuilder();
+      const planName = getString('planNameInput') || getString('planSelect') || null;
+      const payload = {
+        plan_name: planName,
+        config,
+        dry_run: !!runDryToggle.checked,
+        continue_on_error: !!runContinueToggle.checked,
+      };
+      const job = await fetchJson('/api/batch-runs/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      setStatus(`Started batch job ${job.id}`, false);
+      await refreshJobs();
+      await openJobLog(job.id, job.status || 'queued');
+    }
+
+    async function runSplitNow() {
+      const splitConfig = collectSplitOnlyConfig();
+      const payload = {
+        name: splitConfig.name || null,
+        config: splitConfig,
+      };
+      const job = await fetchJson('/api/batch-runs/run-split', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      setStatus(`Started split job ${job.id}`, false);
+      await refreshJobs();
+      await openJobLog(job.id, job.status || 'queued');
+    }
+
+    async function switchDirectory() {
+      const nextPath = getString('dirSelect');
+      if (!nextPath || nextPath === currentRunDirPath) {
+        return;
+      }
+
+      await fetchJson('/api/directories/set', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: nextPath }),
+      });
+
+      closeLogStream();
+      activeJobId = '';
+      jobLog.textContent = 'Select or start a job to stream output.';
+      activeJobLabel.textContent = 'No job selected';
+
+      await loadDirectories();
+      await loadPlans('');
+      await loadTemplate();
+      await refreshJobs();
+      setStatus('Working directory switched and plan builder reloaded.', false);
+    }
+
+    async function initialize() {
+      try {
+        setStatus('Loading...', false);
+        await loadDirectories();
+        await loadPlans('');
+        await loadTemplate();
+        await refreshJobs();
+        setStatus('Ready.', false);
+      } catch (err) {
+        setStatus(err.message || String(err), true);
+      }
+    }
+
+    document.getElementById('reloadPlansBtn').addEventListener('click', async () => {
+      try {
+        await loadPlans(getString('planSelect'));
+        setStatus('Plan list refreshed.', false);
+      } catch (err) {
+        setStatus(err.message || String(err), true);
+      }
+    });
+
+    document.getElementById('loadPlanBtn').addEventListener('click', async () => {
+      try {
+        await loadSelectedPlan();
+      } catch (err) {
+        setStatus(err.message || String(err), true);
+      }
+    });
+
+    document.getElementById('loadTemplateBtn').addEventListener('click', async () => {
+      try {
+        await loadTemplate();
+      } catch (err) {
+        setStatus(err.message || String(err), true);
+      }
+    });
+
+    document.getElementById('savePlanBtn').addEventListener('click', async () => {
+      try {
+        await savePlan();
+      } catch (err) {
+        setStatus(err.message || String(err), true);
+      }
+    });
+
+    document.getElementById('deletePlanBtn').addEventListener('click', async () => {
+      try {
+        await deletePlan();
+      } catch (err) {
+        setStatus(err.message || String(err), true);
+      }
+    });
+
+    document.getElementById('runPlanBtn').addEventListener('click', async () => {
+      try {
+        await runBatchPlanNow();
+      } catch (err) {
+        setStatus(err.message || String(err), true);
+      }
+    });
+
+    document.getElementById('copyPlanSplitBtn').addEventListener('click', () => {
+      copyPlanDefaultsToSplitRun();
+      setStatus('Split form copied from plan defaults.', false);
+    });
+
+    document.getElementById('runSplitBtn').addEventListener('click', async () => {
+      try {
+        await runSplitNow();
+      } catch (err) {
+        setStatus(err.message || String(err), true);
+      }
+    });
+
+    document.getElementById('addJobBtn').addEventListener('click', () => {
+      addNewJob();
+      setStatus('Added new training job.', false);
+    });
+
+    document.getElementById('clearJobsBtn').addEventListener('click', () => {
+      jobsState = [normalizeJob({}, 0)];
+      renderJobs();
+      rawJsonEditor.value = JSON.stringify(readPlanFromBuilder(), null, 2);
+      setStatus('Jobs reset to a single blank job.', false);
+    });
+
+    document.getElementById('addSweepBtn').addEventListener('click', () => {
+      try {
+        addSweepJobs();
+        const selectedSweepType = getString('sweepType') || 'epochs';
+        if (selectedSweepType === 'save_period') {
+          setStatus('Save period sweep jobs added.', false);
+        } else {
+          setStatus('Epoch sweep jobs added.', false);
+        }
+      } catch (err) {
+        setStatus(err.message || String(err), true);
+      }
+    });
+
+    document.getElementById('syncJsonBtn').addEventListener('click', () => {
+      try {
+        rawJsonEditor.value = JSON.stringify(readPlanFromBuilder(), null, 2);
+        setStatus('Builder synced to JSON.', false);
+      } catch (err) {
+        setStatus(err.message || String(err), true);
+      }
+    });
+
+    document.getElementById('applyJsonBtn').addEventListener('click', () => {
+      try {
+        const parsed = JSON.parse(rawJsonEditor.value || '{}');
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+          throw new Error('Top-level JSON value must be an object.');
+        }
+        applyPlanToBuilder(parsed);
+        setStatus('JSON applied to form builder.', false);
+      } catch (err) {
+        setStatus(err.message || String(err), true);
+      }
+    });
+
+    document.getElementById('refreshJobsBtn').addEventListener('click', async () => {
+      try {
+        await refreshJobs();
+        if (!logStream) {
+          await refreshActiveJobLog();
+        }
+        setStatus('Jobs refreshed.', false);
+      } catch (err) {
+        setStatus(err.message || String(err), true);
+      }
+    });
+
+    dirSelect.addEventListener('change', async () => {
+      try {
+        await switchDirectory();
+      } catch (err) {
+        setStatus(err.message || String(err), true);
+      }
+    });
+
+    setInterval(async () => {
+      try {
+        await refreshJobs();
+        if (!logStream) {
+          await refreshActiveJobLog();
+        }
+      } catch (err) {
+      }
+    }, 5000);
+
+    window.addEventListener('beforeunload', () => {
+      closeLogStream();
+    });
+
+    initialize();
+  </script>
+</body>
+</html>

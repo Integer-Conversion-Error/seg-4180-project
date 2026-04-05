@@ -8,29 +8,151 @@
     :root {
       --card-base-size: 220px;
       --card-scale: 1;
+      --bg: #eef2ff;
+      --panel: #ffffff;
+      --panel-border: #dbe4ff;
+      --text: #0f172a;
+      --muted: #64748b;
+      --primary: #2563eb;
+      --primary-soft: #dbeafe;
+      --success: #059669;
+      --danger: #dc2626;
+      --warning: #b45309;
     }
-    body { font-family: Arial, sans-serif; margin: 0; padding: 16px 16px 16px 16px; background: #f3f4f6; }
+    * { box-sizing: border-box; }
+    body {
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      margin: 0;
+      padding: 16px;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 100% 0%, #dbeafe 0%, #eef2ff 35%, #f8fafc 100%);
+    }
     .toolbar {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-      align-items: center;
+      display: grid;
       margin-bottom: 12px;
       position: sticky;
       top: 0;
-      background: white;
-      border-bottom: 1px solid #e5e7eb;
-      padding: 16px 0;
+      background: rgba(255, 255, 255, 0.92);
+      backdrop-filter: blur(8px);
+      border: 1px solid var(--panel-border);
+      border-radius: 14px;
+      padding: 12px;
+      box-shadow: 0 12px 35px rgba(15, 23, 42, 0.08);
       z-index: 1000;
     }
+    .toolbar-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+      gap: 10px;
+    }
+    .toolbar-section {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid #e2e8f0;
+      background: var(--panel);
+      border-radius: 10px;
+      padding: 10px;
+      min-height: 56px;
+    }
+    .toolbar-section.wide {
+      grid-column: span 2;
+    }
+    .section-label {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      margin-right: 2px;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
     .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(calc(var(--card-base-size) * var(--card-scale)), 1fr)); gap: 10px; }
-    .card { border: 2px solid transparent; background: white; border-radius: 8px; overflow: hidden; cursor: pointer; }
+    .card { border: 2px solid transparent; background: white; border-radius: 10px; overflow: hidden; cursor: pointer; box-shadow: 0 4px 10px rgba(15, 23, 42, 0.05); }
     .card.selected { border-color: #2563eb; }
     .card img { width: 100%; height: auto; aspect-ratio: 640 / 610; object-fit: contain; display: block; background: #e5e7eb; }
     .meta { padding: 8px; font-size: 12px; color: #374151; }
-    button, select, input { padding: 8px; border-radius: 6px; border: 1px solid #d1d5db; }
-    .status { margin-left: auto; color: #6b7280; font-size: 13px; }
+    button, select, input {
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: 1px solid #cbd5e1;
+      background: #ffffff;
+      color: var(--text);
+      font-size: 13px;
+    }
+    button {
+      cursor: pointer;
+      font-weight: 600;
+      transition: border-color 0.15s ease, background 0.15s ease, transform 0.1s ease;
+    }
+    button:hover {
+      border-color: #93c5fd;
+      background: #f8fafc;
+    }
+    button:active {
+      transform: translateY(1px);
+    }
+    button:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+    .btn-primary {
+      border-color: #bfdbfe;
+      background: #eff6ff;
+      color: #1d4ed8;
+    }
+    .btn-success {
+      border-color: #a7f3d0;
+      background: #ecfdf5;
+      color: #065f46;
+    }
+    .btn-danger {
+      border-color: #fecaca;
+      background: #fef2f2;
+      color: #991b1b;
+    }
+    .btn-warning {
+      border-color: #fde68a;
+      background: #fffbeb;
+      color: #92400e;
+    }
+    .zoom-group {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 2px 8px;
+      border: 1px solid #e2e8f0;
+      border-radius: 999px;
+      background: #f8fafc;
+    }
+    .status-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-left: auto;
+    }
+    .status-chip {
+      color: #475569;
+      font-size: 12px;
+      border: 1px solid #e2e8f0;
+      border-radius: 999px;
+      background: #f8fafc;
+      padding: 5px 10px;
+      white-space: nowrap;
+    }
+    .cost-chip {
+      color: #334155;
+      background: #f1f5f9;
+    }
     .zoom-label { min-width: 50px; text-align: center; color: #6b7280; font-size: 13px; }
+    #touchupPromptSelect { min-width: 250px; }
+    #touchupProviderSelect { min-width: 160px; }
+    #customPrompt { min-width: 320px; }
+    #newPresetName { min-width: 120px; }
+    #newPresetPrompt { min-width: 220px; }
+    #customPresetsSelect { min-width: 160px; }
     
     /* Modal Styles */
     .modal-overlay {
@@ -341,6 +463,17 @@
       font-size: 12px;
     }
     @media (max-width: 1100px) {
+      .toolbar-section.wide {
+        grid-column: span 1;
+      }
+      .status-chips {
+        margin-left: 0;
+        width: 100%;
+      }
+      #customPrompt,
+      #newPresetPrompt {
+        min-width: 240px;
+      }
       .batch-row {
         grid-template-columns: 1fr;
       }
@@ -357,57 +490,75 @@
 <body>
   <a href="/" style="display:inline-block; margin-bottom: 12px; text-decoration:none; color:#2563eb;">&larr; Back to Tools</a>
   <div class="toolbar">
-    <select id="bucketSel">
-      <option value="">All Buckets</option>
-      <option value="EV-SNV">EV-SNV</option>
-      <option value="EV-SE">EV-SE</option>
-      <option value="SVO-E">SVO-E</option>
-      <option value="SVO-NV">SVO-NV</option>
-    </select>
-    <select id="statusSel">
-      <option value="todo">todo</option>
-      <option value="approved">approved</option>
-      <option value="rejected">rejected</option>
-      <option value="edited">edited</option>
-      <option value="">all</option>
-    </select>
-    <button id="reloadBtn">Reload</button>
-    <button id="approveBtn">Mark Approved</button>
-    <button id="rejectBtn">Mark Rejected</button>
-    <button id="editedBtn">Mark Edited</button>
-    <span id="costSummary" class="status" style="margin-left: 8px;">Cost total: $0.000000 | Grok: $0.000000 | Gemini: $0.000000 | Flux: $0.000000</span>
-    <select id="touchupPromptSelect" style="min-width:250px;" title="Select prompt used for regeneration">
-      <option value="mode:preset">Preset: Improve blending</option>
-      <option value="mode:fix_direction">Preset: Fix vehicle direction</option>
-      <option value="mode:fix_lighting">Preset: Fix lighting/shadows</option>
-      <option value="custom:input">Custom prompt (text input)</option>
-    </select>
-    <select id="touchupProviderSelect" style="min-width:140px;" title="Select provider used for touchup edits">
-      <option value="gemini">Provider: Gemini</option>
-      <option value="grok">Provider: Grok</option>
-      <option value="flux">Provider: Flux</option>
-    </select>
-    <input id="customPrompt" type="text" placeholder="Custom prompt text (used when Custom prompt is selected)" style="min-width:320px;" />
-    <button id="regenerateBtn" title="Regenerate selected images using the prompt selected in dropdown">Regenerate Selected</button>
-    <button id="goToPlaygroundBtn" title="Open selected images in Touchup Playground">Go to Playground</button>
-    
-    <!-- Custom Preset Management -->
-    <div id="presetManagement" style="display: flex; gap: 8px; align-items: center; margin-left: 16px;">
-        <input id="newPresetName" type="text" placeholder="Preset name" style="min-width:120px;" />
-        <input id="newPresetPrompt" type="text" placeholder="Prompt text" style="min-width:200px;" />
+    <div class="toolbar-grid">
+      <div class="toolbar-section">
+        <span class="section-label">Filters</span>
+        <select id="bucketSel">
+          <option value="">All Buckets</option>
+          <option value="EV-SNV">EV-SNV</option>
+          <option value="EV-SE">EV-SE</option>
+          <option value="SVO-E">SVO-E</option>
+          <option value="SVO-NV">SVO-NV</option>
+        </select>
+        <select id="statusSel">
+          <option value="todo">todo</option>
+          <option value="approved">approved</option>
+          <option value="rejected">rejected</option>
+          <option value="edited">edited</option>
+          <option value="">all</option>
+        </select>
+        <button id="reloadBtn" class="btn-primary">Reload</button>
+        <button id="selectShownBtn">Select Shown</button>
+        <button id="clearSelectionBtn">Clear Selection</button>
+      </div>
+
+      <div class="toolbar-section">
+        <span class="section-label">Review Status</span>
+        <button id="approveBtn" class="btn-success">Mark Approved</button>
+        <button id="rejectBtn" class="btn-danger">Mark Rejected</button>
+        <button id="editedBtn" class="btn-warning">Mark Edited</button>
+      </div>
+
+      <div class="toolbar-section wide">
+        <span class="section-label">Touchup</span>
+        <select id="touchupPromptSelect" title="Select prompt used for regeneration">
+          <option value="">Loading prompts...</option>
+        </select>
+        <select id="touchupProviderSelect" title="Select provider used for touchup edits">
+          <option value="gemini">Provider: Gemini</option>
+          <option value="grok">Provider: Grok</option>
+          <option value="flux">Provider: Flux</option>
+        </select>
+        <input id="customPrompt" type="text" placeholder="Custom prompt text (used when Custom prompt is selected)" />
+        <button id="regenerateBtn" class="btn-primary" title="Regenerate selected images using the prompt selected in dropdown">Regenerate Selected</button>
+        <button id="goToPlaygroundBtn" title="Open selected images in Touchup Playground">Go to Playground</button>
+      </div>
+
+      <div id="presetManagement" class="toolbar-section wide">
+        <span class="section-label">Custom Presets</span>
+        <input id="newPresetName" type="text" placeholder="Preset name" />
+        <input id="newPresetPrompt" type="text" placeholder="Prompt text" />
         <button id="savePresetBtn">Save as Preset</button>
-        <select id="customPresetsSelect" style="min-width:150px;">
-            <option value="">Custom Presets</option>
+        <select id="customPresetsSelect">
+          <option value="">Custom Presets</option>
         </select>
         <button id="loadPresetBtn">Load Preset</button>
         <button id="deletePresetBtn">Delete Preset</button>
+      </div>
+
+      <div class="toolbar-section wide">
+        <span class="section-label">View</span>
+        <div class="zoom-group">
+          <button id="zoomOutBtn">-20%</button>
+          <span id="zoomLabel" class="zoom-label">100%</span>
+          <button id="zoomInBtn">+20%</button>
+        </div>
+        <div class="status-chips">
+          <span id="statusText" class="status-chip">Loading...</span>
+          <span id="costSummary" class="status-chip cost-chip">Cost total: $0.000000 | Grok: $0.000000 | Gemini: $0.000000 | Flux: $0.000000</span>
+        </div>
+      </div>
     </div>
-    <div class="group">
-      <button id="zoomOutBtn">-20%</button>
-      <span id="zoomLabel" class="zoom-label">100%</span>
-      <button id="zoomInBtn">+20%</button>
-    </div>
-    <span id="statusText" class="status">Loading...</span>
   </div>
 
   <div id="grid" class="grid"></div>
@@ -422,10 +573,13 @@
     const costSummary = document.getElementById('costSummary');
     const customPrompt = document.getElementById('customPrompt');
     const zoomLabelEl = document.getElementById('zoomLabel');
+    const selectShownBtn = document.getElementById('selectShownBtn');
+    const clearSelectionBtn = document.getElementById('clearSelectionBtn');
     let items = [];
     let selected = new Set();
     let cardScale = 1;
     const customPresetPromptMap = new Map();
+    const touchupPromptMap = new Map();
 
     function applyCardScale() {
       document.documentElement.style.setProperty('--card-scale', String(cardScale));
@@ -438,13 +592,65 @@
       applyCardScale();
     }
 
+    function updateSelectionToolbarState() {
+      const shownCount = items.length;
+      const selectedCount = selected.size;
+      const bucketLabel = bucketSel.value || 'all buckets';
+      const statusLabel = statusSel.value || 'all statuses';
+      statusText.textContent = `${selectedCount} selected / ${shownCount} shown (${bucketLabel}, ${statusLabel})`;
+      selectShownBtn.disabled = shownCount === 0 || selectedCount === shownCount;
+      clearSelectionBtn.disabled = selectedCount === 0;
+    }
+
+    function selectAllShown() {
+      selected.clear();
+      for (const item of items) {
+        selected.add(item.image_id);
+      }
+      render();
+      updateSelectionToolbarState();
+    }
+
+    function clearSelection() {
+      selected.clear();
+      render();
+      updateSelectionToolbarState();
+    }
+
     function getSelectedTouchupConfig(promptSelectEl = touchupPromptSelect, customPromptInputEl = customPrompt) {
-      const selectedValue = promptSelectEl.value || 'mode:preset';
+      const selectedValue = promptSelectEl.value || 'custom:input';
       const selectedLabel = promptSelectEl.options[promptSelectEl.selectedIndex]?.textContent || selectedValue;
 
-      if (selectedValue.startsWith('mode:')) {
+      if (selectedValue.startsWith('prompt:')) {
+        const promptId = selectedValue.slice('prompt:'.length);
+        const promptText = touchupPromptMap.get(promptId);
+        if (!promptText) {
+          throw new Error(`Prompt '${promptId}' is unavailable. Reload prompts and try again.`);
+        }
         return {
-          promptMode: selectedValue.slice('mode:'.length),
+          promptMode: 'stored',
+          promptId,
+          customPromptText: null,
+          promptLabel: selectedLabel,
+        };
+      }
+
+      if (selectedValue.startsWith('mode:')) {
+        const legacyMode = selectedValue.slice('mode:'.length);
+        const legacyMap = {
+          preset: 'improve_blending',
+          improve_blending: 'improve_blending',
+          fix_direction: 'fix_direction',
+          fix_lighting: 'fix_lighting',
+        };
+        const promptId = legacyMap[legacyMode] || legacyMode;
+        const promptText = touchupPromptMap.get(promptId);
+        if (!promptText) {
+          throw new Error(`Prompt '${promptId}' is unavailable. Reload prompts and try again.`);
+        }
+        return {
+          promptMode: 'stored',
+          promptId,
           customPromptText: null,
           promptLabel: selectedLabel,
         };
@@ -462,21 +668,55 @@
         };
       }
 
-      if (selectedValue.startsWith('custom:preset:')) {
-        const encodedName = selectedValue.slice('custom:preset:'.length);
-        const presetName = decodeURIComponent(encodedName);
-        const presetPrompt = customPresetPromptMap.get(presetName);
-        if (!presetPrompt) {
-          throw new Error(`Preset prompt not found for '${presetName}'. Reload presets and try again.`);
-        }
-        return {
-          promptMode: 'custom',
-          customPromptText: presetPrompt,
-          promptLabel: selectedLabel,
-        };
-      }
-
       throw new Error(`Unsupported prompt selection: ${selectedValue}`);
+    }
+
+    async function loadTouchupPromptsList() {
+      try {
+        const res = await fetch('/api/touchup-prompts');
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+
+        const data = await res.json();
+        const prompts = Array.isArray(data?.prompts) ? data.prompts : [];
+        const previousPromptValue = touchupPromptSelect.value;
+
+        touchupPromptMap.clear();
+        touchupPromptSelect.innerHTML = '';
+
+        for (const prompt of prompts) {
+          const id = String(prompt?.id || '').trim();
+          const name = String(prompt?.name || id).trim();
+          const text = String(prompt?.prompt_text || '').trim();
+          if (!id || !text) continue;
+
+          touchupPromptMap.set(id, text);
+
+          const option = document.createElement('option');
+          option.value = `prompt:${id}`;
+          option.textContent = `Prompt: ${name}`;
+          touchupPromptSelect.appendChild(option);
+        }
+
+        const customOption = document.createElement('option');
+        customOption.value = 'custom:input';
+        customOption.textContent = 'Custom prompt (text input)';
+        touchupPromptSelect.appendChild(customOption);
+
+        if (!touchupPromptSelect.options.length) {
+          touchupPromptSelect.innerHTML = '<option value="custom:input">Custom prompt (text input)</option>';
+        }
+
+        if ([...touchupPromptSelect.options].some((opt) => opt.value === previousPromptValue)) {
+          touchupPromptSelect.value = previousPromptValue;
+        } else if (touchupPromptSelect.options.length > 0) {
+          touchupPromptSelect.selectedIndex = 0;
+        }
+      } catch (error) {
+        console.error('Failed to load touchup prompts:', error);
+        touchupPromptSelect.innerHTML = '<option value="custom:input">Custom prompt (text input)</option>';
+      }
     }
 
     function getSelectedTouchupProvider(providerSelectEl = touchupProviderSelect) {
@@ -524,7 +764,7 @@
       items = data.items || [];
       selected.clear();
       render();
-      statusText.textContent = `${items.length} shown`;
+      updateSelectionToolbarState();
     }
 
     function render() {
@@ -544,7 +784,7 @@
           if (selected.has(item.image_id)) selected.delete(item.image_id);
           else selected.add(item.image_id);
           render();
-          statusText.textContent = `${selected.size} selected`;
+          updateSelectionToolbarState();
         });
         grid.appendChild(card);
       }
@@ -642,9 +882,12 @@
               prompt_mode: promptConfig.promptMode,
               provider: selectedProvider,
             };
-           if (promptConfig.promptMode === 'custom') {
-             payload.custom_prompt = promptConfig.customPromptText;
-           }
+            if (promptConfig.promptMode === 'stored') {
+              payload.prompt_id = promptConfig.promptId;
+            } else if (promptConfig.promptMode === 'custom') {
+              payload.prompt_mode = 'custom';
+              payload.custom_prompt = promptConfig.customPromptText;
+            }
           try {
             const res = await fetch('/api/synth/touchup', {
               method: 'POST',
@@ -816,7 +1059,7 @@
                 <select id="batchPromptSelect"></select>
                 <input id="batchCustomPrompt" type="text" placeholder="Custom prompt text (used for Custom prompt option)" />
                 <button id="batchRegenerateFocused" class="btn-regenerate-focused">Regenerate focused (Shift+G)</button>
-                <div class="regen-hint">Use this during before/after review when a Gemini touchup is subpar. Prompt dropdown includes built-ins and saved presets.</div>
+                 <div class="regen-hint">Use this during before/after review when a touchup is subpar. Prompt dropdown loads from touchup prompts JSON plus custom input.</div>
               </div>
               <div class="batch-summary">
                <span class="summary-pill summary-apply" id="pillApply"></span>
@@ -849,14 +1092,14 @@
            return getSelectedTouchupConfig(modalPromptSelect, modalCustomPrompt);
          }
 
-         modalPromptSelect.addEventListener('change', () => {
-           const value = modalPromptSelect.value || '';
-           if (value.startsWith('custom:preset:')) {
-             const name = decodeURIComponent(value.slice('custom:preset:'.length));
-             const promptText = customPresetPromptMap.get(name) || '';
-             modalCustomPrompt.value = promptText;
-           }
-         });
+          modalPromptSelect.addEventListener('change', () => {
+            const value = modalPromptSelect.value || '';
+            if (value.startsWith('prompt:')) {
+              const promptId = value.slice('prompt:'.length);
+              const promptText = touchupPromptMap.get(promptId) || '';
+              modalCustomPrompt.value = promptText;
+            }
+          });
 
          function focusRow(nextIdx) {
            focusedIdx = Math.max(0, Math.min(results.length - 1, nextIdx));
@@ -917,9 +1160,12 @@
                 prompt_mode: promptConfig.promptMode,
                 provider: selectedProvider,
               };
-             if (promptConfig.promptMode === 'custom') {
-               payload.custom_prompt = promptConfig.customPromptText;
-             }
+              if (promptConfig.promptMode === 'stored') {
+                payload.prompt_id = promptConfig.promptId;
+              } else if (promptConfig.promptMode === 'custom') {
+                payload.prompt_mode = 'custom';
+                payload.custom_prompt = promptConfig.customPromptText;
+              }
 
               const res = await fetch('/api/synth/touchup', {
                 method: 'POST',
@@ -1062,25 +1308,17 @@
        });
      }
 
-     // Custom Preset Management Functions
+      // Custom Preset Management Functions
       async function loadCustomPresetsList() {
         try {
           const res = await fetch('/api/synth/custom-presets');
           const data = await res.json();
           const managementSelect = document.getElementById('customPresetsSelect');
           const previousManagementValue = managementSelect.value;
-          const previousPromptValue = touchupPromptSelect.value;
 
           customPresetPromptMap.clear();
 
           managementSelect.innerHTML = '<option value="">Custom Presets</option>';
-
-          touchupPromptSelect.innerHTML = `
-            <option value="mode:preset">Preset: Improve blending</option>
-            <option value="mode:fix_direction">Preset: Fix vehicle direction</option>
-            <option value="mode:fix_lighting">Preset: Fix lighting/shadows</option>
-            <option value="custom:input">Custom prompt (text input)</option>
-          `;
 
           for (const preset of data.presets || []) {
             customPresetPromptMap.set(preset.name, preset.prompt);
@@ -1089,19 +1327,10 @@
             managementOption.value = preset.name;
             managementOption.textContent = preset.name;
             managementSelect.appendChild(managementOption);
-
-            const encodedName = encodeURIComponent(preset.name);
-            const touchupOption = document.createElement('option');
-            touchupOption.value = `custom:preset:${encodedName}`;
-            touchupOption.textContent = `Saved preset: ${preset.name}`;
-            touchupPromptSelect.appendChild(touchupOption);
           }
 
           if (previousManagementValue) {
             managementSelect.value = previousManagementValue;
-          }
-          if ([...touchupPromptSelect.options].some((opt) => opt.value === previousPromptValue)) {
-            touchupPromptSelect.value = previousPromptValue;
           }
         } catch (error) {
           console.error('Failed to load custom presets:', error);
@@ -1194,11 +1423,13 @@
      }
 
      document.getElementById('reloadBtn').addEventListener('click', loadItems);
-     document.getElementById('approveBtn').addEventListener('click', () => bulkStatus('approved'));
-     document.getElementById('rejectBtn').addEventListener('click', () => bulkStatus('rejected'));
-     document.getElementById('editedBtn').addEventListener('click', () => bulkStatus('edited'));
-      document.getElementById('regenerateBtn').addEventListener('click', touchup);
-      document.getElementById('goToPlaygroundBtn').addEventListener('click', () => {
+      document.getElementById('approveBtn').addEventListener('click', () => bulkStatus('approved'));
+      document.getElementById('rejectBtn').addEventListener('click', () => bulkStatus('rejected'));
+      document.getElementById('editedBtn').addEventListener('click', () => bulkStatus('edited'));
+      selectShownBtn.addEventListener('click', selectAllShown);
+      clearSelectionBtn.addEventListener('click', clearSelection);
+       document.getElementById('regenerateBtn').addEventListener('click', touchup);
+       document.getElementById('goToPlaygroundBtn').addEventListener('click', () => {
         const selectedItems = items.filter((x) => selected.has(x.image_id));
         if (!selectedItems.length) {
           alert('Select at least one image first');
@@ -1215,21 +1446,22 @@
       document.getElementById('deletePresetBtn').addEventListener('click', deleteCustomPreset);
       touchupPromptSelect.addEventListener('change', () => {
         const value = touchupPromptSelect.value || '';
-        if (value.startsWith('custom:preset:')) {
-          const name = decodeURIComponent(value.slice('custom:preset:'.length));
-          const promptText = customPresetPromptMap.get(name) || '';
+        if (value.startsWith('prompt:')) {
+          const promptId = value.slice('prompt:'.length);
+          const promptText = touchupPromptMap.get(promptId) || '';
           customPrompt.value = promptText;
         }
       });
       bucketSel.addEventListener('change', loadItems);
       statusSel.addEventListener('change', loadItems);
      
-     // Load custom presets on startup
+      loadTouchupPromptsList();
       loadCustomPresetsList();
-      initializeTouchupProviders();
-      refreshCostSummary();
+     initializeTouchupProviders();
+     refreshCostSummary();
 
     applyCardScale();
+    updateSelectionToolbarState();
     loadItems();
   </script>
 </body>

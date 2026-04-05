@@ -189,6 +189,7 @@
                 for (let i = 0; i < promptSelect.options.length; i++) {
                     if (promptSelect.options[i].value === params.prompt) {
                         promptSelect.selectedIndex = i;
+                        onPromptSelectChange();
                         break;
                     }
                 }
@@ -234,6 +235,11 @@
                 prompts = data.prompts || [];
                 renderPromptList();
                 renderPromptDropdown();
+
+                if (currentPromptId && prompts.some(p => p.id === currentPromptId)) {
+                    selectPrompt(currentPromptId);
+                }
+
                 initFromUrl();
             } catch (e) {
                 document.getElementById('promptList').innerHTML = '<div class="error">Failed to load prompts</div>';
@@ -259,6 +265,7 @@
             currentPromptId = id;
             const prompt = prompts.find(p => p.id === id);
             if (prompt) {
+                document.getElementById('promptSelect').value = id;
                 document.getElementById('promptName').value = prompt.name || '';
                 document.getElementById('promptText').value = prompt.prompt_text || '';
             }
@@ -309,13 +316,15 @@
             }
             
             try {
+                const existing = prompts.find(p => p.id === currentPromptId);
                 const res = await fetch(`/api/touchup-prompts/${currentPromptId}`, {
                     method: 'PUT',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({name, prompt_text: text, description: ''})
+                    body: JSON.stringify({name, prompt_text: text, description: existing?.description || ''})
                 });
                 if (!res.ok) throw new Error('Failed to update');
                 await loadPrompts();
+                selectPrompt(currentPromptId);
                 alert('Prompt saved!');
             } catch (e) {
                 alert('Error saving prompt: ' + e.message);
@@ -341,6 +350,7 @@
                         body: JSON.stringify({name, description, prompt_text: text})
                     });
                     if (!res.ok) throw new Error('Failed to update');
+                    currentPromptId = id;
                 } else {
                     const res = await fetch('/api/touchup-prompts', {
                         method: 'POST',
@@ -348,9 +358,14 @@
                         body: JSON.stringify({name, description, prompt_text: text})
                     });
                     if (!res.ok) throw new Error('Failed to add');
+                    const created = await res.json();
+                    currentPromptId = created.id || null;
                 }
                 closePromptEditor();
                 await loadPrompts();
+                if (currentPromptId) {
+                    selectPrompt(currentPromptId);
+                }
             } catch (e) {
                 alert('Error saving prompt: ' + e.message);
             }

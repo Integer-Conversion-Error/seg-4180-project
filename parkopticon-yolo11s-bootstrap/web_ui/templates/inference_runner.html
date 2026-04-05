@@ -1,0 +1,755 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Inference Runner</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; padding: 16px; background: #f3f4f6; color: #111827; }
+    .container { max-width: 1200px; margin: 0 auto; }
+    h1 { margin-top: 0; }
+    .section { background: #ffffff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
+    .row:last-child { margin-bottom: 0; }
+    .field { display: grid; gap: 4px; min-width: 220px; flex: 1; }
+    .field label { font-size: 12px; color: #6b7280; font-weight: 600; }
+    select, input, button { font: inherit; }
+    select, input[type="text"], input[type="number"] { padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 6px; width: 100%; }
+    button { padding: 8px 12px; border: 1px solid #d1d5db; border-radius: 6px; background: #f8fafc; cursor: pointer; }
+    button:hover { background: #eff6ff; border-color: #93c5fd; }
+    button.primary { background: #1d4ed8; border-color: #1d4ed8; color: white; }
+    button.primary:hover { background: #1e40af; }
+    .status { font-weight: 600; font-size: 13px; }
+    .status.error { color: #b91c1c; }
+    .status.ok { color: #065f46; }
+    .muted { color: #6b7280; font-size: 13px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border-bottom: 1px solid #e5e7eb; padding: 8px; text-align: left; font-size: 13px; vertical-align: top; }
+    th { background: #f9fafb; }
+    .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+    .queued { background: #fef3c7; color: #92400e; }
+    .running { background: #dbeafe; color: #1d4ed8; }
+    .cancelling { background: #ede9fe; color: #5b21b6; }
+    .completed { background: #dcfce7; color: #166534; }
+    .cancelled { background: #f3f4f6; color: #374151; }
+    .failed { background: #fee2e2; color: #991b1b; }
+    pre { margin: 0; max-height: 340px; overflow: auto; background: #0b1220; color: #d1d5db; padding: 12px; border-radius: 8px; font-size: 12px; line-height: 1.35; white-space: pre-wrap; }
+    .links { display: grid; gap: 6px; max-height: 180px; overflow: auto; }
+    .links a { color: #2563eb; text-decoration: none; font-size: 13px; }
+    .links a:hover { text-decoration: underline; }
+    .preview-wrap { background: #0b1220; border-radius: 8px; min-height: 260px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+    .preview-wrap img { width: 100%; height: auto; display: block; }
+    .preview-empty { color: #9ca3af; font-size: 13px; padding: 24px; text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <a href="/" style="display:inline-block; margin-bottom: 12px; text-decoration:none; color:#2563eb;">&larr; Back to Tools</a>
+    <h1>Inference Runner</h1>
+    <p class="muted">Run a selected weight file on media (defaults to an MP4 in <code>test-videos</code>, then project root, when media is left blank).</p>
+
+    <div class="section">
+      <div class="row">
+        <div class="field">
+          <label for="weightsSelect">Detected Weights</label>
+          <select id="weightsSelect"><option value="">Loading...</option></select>
+        </div>
+        <div class="field" style="min-width: 360px; flex: 2;">
+          <label for="weightsPathInput">Weight Path</label>
+          <input id="weightsPathInput" type="text" placeholder="Path to .pt weights file" />
+        </div>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label for="mediaSelect">Detected Media</label>
+          <select id="mediaSelect"><option value="">(Use default MP4: test-videos first)</option></select>
+        </div>
+        <div class="field" style="min-width: 360px; flex: 2;">
+          <label for="mediaPathInput">Media Path (optional)</label>
+          <input id="mediaPathInput" type="text" placeholder="Optional media path. Leave blank to use default MP4 (test-videos first)." />
+        </div>
+      </div>
+      <div class="row">
+        <div class="field"><label for="confInput">Confidence</label><input id="confInput" type="number" step="0.01" min="0" max="1" value="0.25" /></div>
+        <div class="field"><label for="iouInput">IoU</label><input id="iouInput" type="number" step="0.01" min="0" max="1" value="0.45" /></div>
+        <div class="field"><label for="imgszInput">Image Size</label><input id="imgszInput" type="number" step="1" min="64" value="640" /></div>
+        <div class="field"><label for="deviceInput">Device</label><input id="deviceInput" type="text" value="0" /></div>
+      </div>
+      <div class="row">
+        <label><input id="saveTxtToggle" type="checkbox" /> save_txt</label>
+        <label><input id="saveConfToggle" type="checkbox" /> save_conf</label>
+        <button id="reloadOptionsBtn" type="button">Reload Options</button>
+        <button id="runBtn" type="button" class="primary">Run Inference</button>
+      </div>
+      <div id="statusText" class="status muted">Ready.</div>
+    </div>
+
+    <div class="section">
+      <div class="row">
+        <h2 style="margin:0;">Inference Jobs</h2>
+        <button id="refreshJobsBtn" type="button">Refresh Jobs</button>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Job</th>
+            <th>Status</th>
+            <th>Weight</th>
+            <th>Media</th>
+            <th>Created</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="jobsBody">
+          <tr><td colspan="6" class="muted">No jobs yet.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="section">
+      <div class="row">
+        <h2 style="margin:0;">Live Log</h2>
+        <span id="activeJobLabel" class="muted">No job selected</span>
+      </div>
+      <pre id="jobLog">Select a job to view logs.</pre>
+    </div>
+
+    <div class="section">
+      <div class="row">
+        <h2 style="margin:0;">Live Preview</h2>
+        <span id="previewStatus" class="muted">No preview available.</span>
+      </div>
+      <div class="preview-wrap" id="previewWrap">
+        <div class="preview-empty" id="previewEmpty">Run and open a job to see detections update live.</div>
+        <img id="previewImage" alt="Live inference preview" style="display:none;" />
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Output Files</h2>
+      <div id="outputFiles" class="links">
+        <span class="muted">Output files appear after a job completes.</span>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const weightsSelect = document.getElementById('weightsSelect');
+    const weightsPathInput = document.getElementById('weightsPathInput');
+    const mediaSelect = document.getElementById('mediaSelect');
+    const mediaPathInput = document.getElementById('mediaPathInput');
+    const confInput = document.getElementById('confInput');
+    const iouInput = document.getElementById('iouInput');
+    const imgszInput = document.getElementById('imgszInput');
+    const deviceInput = document.getElementById('deviceInput');
+    const saveTxtToggle = document.getElementById('saveTxtToggle');
+    const saveConfToggle = document.getElementById('saveConfToggle');
+    const statusText = document.getElementById('statusText');
+    const jobsBody = document.getElementById('jobsBody');
+    const activeJobLabel = document.getElementById('activeJobLabel');
+    const jobLog = document.getElementById('jobLog');
+    const outputFiles = document.getElementById('outputFiles');
+    const previewStatus = document.getElementById('previewStatus');
+    const previewImage = document.getElementById('previewImage');
+    const previewEmpty = document.getElementById('previewEmpty');
+
+    let activeJobId = '';
+    let logStream = null;
+    let previewTimer = null;
+    let previewStreamJobId = '';
+    let previewFallbackPollTimer = null;
+    let lastPreviewFrame = null;
+    let lastPreviewFrameAt = 0;
+    let terminalPreviewRenderedJobId = '';
+    let logAutoFollow = true;
+    let logInteractionLock = false;
+    let pendingLogChunks = '';
+
+    function setStatus(message, isError = false) {
+      statusText.textContent = message;
+      statusText.classList.toggle('error', isError);
+      statusText.classList.toggle('ok', !isError);
+    }
+
+    async function fetchJson(url, options) {
+      const response = await fetch(url, options || {});
+      if (!response.ok) {
+        let detail = `${response.status} ${response.statusText}`;
+        try {
+          const payload = await response.json();
+          if (payload && payload.detail) {
+            detail = payload.detail;
+          }
+        } catch (err) {
+        }
+        throw new Error(detail);
+      }
+      return response.json();
+    }
+
+    async function loadOptions() {
+      const data = await fetchJson('/api/inference/options');
+
+      weightsSelect.innerHTML = '<option value="">Select a weight file...</option>';
+      for (const weight of data.weights || []) {
+        const option = document.createElement('option');
+        option.value = weight.path;
+        option.textContent = weight.relative || weight.name;
+        weightsSelect.appendChild(option);
+      }
+      if ((data.weights || []).length > 0) {
+        weightsSelect.value = data.weights[0].path;
+        weightsPathInput.value = data.weights[0].path;
+      }
+
+      mediaSelect.innerHTML = '<option value="">(Use default MP4: test-videos first)</option>';
+      for (const media of data.media || []) {
+        const option = document.createElement('option');
+        option.value = media.path;
+        option.textContent = media.relative || media.name;
+        mediaSelect.appendChild(option);
+      }
+
+      const defaultMedia = data.default_media || '';
+      mediaPathInput.value = defaultMedia;
+      if (defaultMedia) {
+        mediaSelect.value = defaultMedia;
+      }
+
+      confInput.value = data.default_conf ?? 0.25;
+      iouInput.value = data.default_iou ?? 0.45;
+      imgszInput.value = data.default_imgsz ?? 640;
+      deviceInput.value = data.default_device ?? '0';
+    }
+
+    function statusClassName(status) {
+      if (status === 'queued') return 'pill queued';
+      if (status === 'running') return 'pill running';
+      if (status === 'cancelling') return 'pill cancelling';
+      if (status === 'completed') return 'pill completed';
+      if (status === 'cancelled') return 'pill cancelled';
+      if (status === 'failed') return 'pill failed';
+      return 'pill';
+    }
+
+    function canCancelStatus(status) {
+      return status === 'queued' || status === 'running' || status === 'cancelling';
+    }
+
+    function closeLogStream() {
+      if (logStream) {
+        logStream.close();
+        logStream = null;
+      }
+    }
+
+    function isLogNearBottom() {
+      return (jobLog.scrollHeight - jobLog.scrollTop - jobLog.clientHeight) < 24;
+    }
+
+    function hasSelectionInLog() {
+      const selection = window.getSelection();
+      if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+        return false;
+      }
+      try {
+        const range = selection.getRangeAt(0);
+        return jobLog.contains(range.startContainer) || jobLog.contains(range.endContainer);
+      } catch (err) {
+        return false;
+      }
+    }
+
+    function flushPendingLogChunks() {
+      if (!pendingLogChunks) {
+        return;
+      }
+      const chunk = pendingLogChunks;
+      pendingLogChunks = '';
+      appendLogChunk(chunk, true);
+    }
+
+    function showPreviewEmpty(message) {
+      stopPreviewStream();
+      stopPreviewImagePolling();
+      previewImage.style.display = 'none';
+      previewEmpty.style.display = 'block';
+      previewEmpty.textContent = message || 'No preview available.';
+    }
+
+    function stopPreviewStream() {
+      if (!previewImage.src) {
+        previewStreamJobId = '';
+        return;
+      }
+      previewImage.src = '';
+      previewStreamJobId = '';
+    }
+
+    function stopPreviewImagePolling() {
+      if (previewFallbackPollTimer) {
+        clearInterval(previewFallbackPollTimer);
+        previewFallbackPollTimer = null;
+      }
+    }
+
+    function startPreviewImagePolling(jobId) {
+      if (!jobId || previewFallbackPollTimer) {
+        return;
+      }
+      previewEmpty.style.display = 'none';
+      previewImage.style.display = 'block';
+      previewFallbackPollTimer = setInterval(() => {
+        const url = `/api/inference/jobs/${encodeURIComponent(jobId)}/preview.jpg?t=${Date.now()}`;
+        previewImage.src = url;
+      }, 80);
+    }
+
+    function startPreviewStream(jobId) {
+      if (!jobId) {
+        return;
+      }
+      if (previewStreamJobId === jobId && previewImage.src) {
+        return;
+      }
+      stopPreviewImagePolling();
+      previewEmpty.style.display = 'none';
+      previewImage.style.display = 'block';
+      previewStreamJobId = jobId;
+      previewImage.src = `/api/inference/jobs/${encodeURIComponent(jobId)}/preview-stream`;
+      lastPreviewFrame = null;
+      lastPreviewFrameAt = Date.now();
+    }
+
+    function stopPreviewTimer() {
+      if (previewTimer) {
+        clearInterval(previewTimer);
+        previewTimer = null;
+      }
+    }
+
+    function startPreviewTimer() {
+      stopPreviewTimer();
+      previewTimer = setInterval(async () => {
+        try {
+          await refreshPreview();
+        } catch (err) {
+        }
+      }, 400);
+    }
+
+    function appendLogChunk(chunkText, force = false) {
+      if (!chunkText) {
+        return;
+      }
+
+      if (!force && (logInteractionLock || hasSelectionInLog())) {
+        pendingLogChunks += chunkText;
+        return;
+      }
+
+      const maxChars = 400000;
+      const shouldStickToBottom = logAutoFollow && isLogNearBottom();
+      jobLog.textContent = `${jobLog.textContent}${chunkText}`;
+      if (jobLog.textContent.length > maxChars) {
+        jobLog.textContent = jobLog.textContent.slice(jobLog.textContent.length - maxChars);
+      }
+      if (shouldStickToBottom) {
+        jobLog.scrollTop = jobLog.scrollHeight;
+      }
+    }
+
+    async function refreshJobDetails() {
+      if (!activeJobId) {
+        return;
+      }
+      const payload = await fetchJson(`/api/inference/jobs/${encodeURIComponent(activeJobId)}`);
+      const files = payload.output_files || [];
+      if (!files.length) {
+        outputFiles.innerHTML = '<span class="muted">No output files yet.</span>';
+      } else {
+        outputFiles.innerHTML = '';
+        for (const url of files) {
+          const link = document.createElement('a');
+          link.href = url;
+          link.target = '_blank';
+          link.rel = 'noopener noreferrer';
+          link.textContent = url;
+          outputFiles.appendChild(link);
+        }
+      }
+    }
+
+    async function refreshActiveLogTail() {
+      if (!activeJobId || logStream) {
+        return;
+      }
+      const payload = await fetchJson(`/api/inference/jobs/${encodeURIComponent(activeJobId)}/log?lines=500`);
+      const nextText = payload.text || '(log is empty)';
+      if (!(logInteractionLock || hasSelectionInLog()) && nextText !== jobLog.textContent) {
+        const shouldStickToBottom = logAutoFollow && isLogNearBottom();
+        jobLog.textContent = nextText;
+        if (shouldStickToBottom) {
+          jobLog.scrollTop = jobLog.scrollHeight;
+        }
+      }
+      await refreshJobDetails();
+    }
+
+    async function refreshPreview() {
+      if (!activeJobId) {
+        previewStatus.textContent = 'No preview available.';
+        showPreviewEmpty('No job selected.');
+        terminalPreviewRenderedJobId = '';
+        return;
+      }
+
+      const payload = await fetchJson(`/api/inference/jobs/${encodeURIComponent(activeJobId)}/preview`);
+      const status = payload.status || 'unknown';
+      const frame = payload.frame != null ? `frame ${payload.frame}` : 'waiting for first frame';
+      previewStatus.textContent = `Job ${activeJobId} (${status}) - ${frame}`;
+
+      if (payload.frame != null) {
+        if (lastPreviewFrame !== payload.frame) {
+          lastPreviewFrame = payload.frame;
+          lastPreviewFrameAt = Date.now();
+        }
+      }
+
+      const isActive = status === 'queued' || status === 'running' || status === 'cancelling';
+      if (isActive) {
+        terminalPreviewRenderedJobId = '';
+        if (!previewStreamJobId && !previewFallbackPollTimer) {
+          startPreviewStream(activeJobId);
+        } else if (
+          previewStreamJobId === activeJobId &&
+          !previewFallbackPollTimer &&
+          lastPreviewFrameAt > 0 &&
+          Date.now() - lastPreviewFrameAt > 1800
+        ) {
+          stopPreviewStream();
+          startPreviewImagePolling(activeJobId);
+        }
+        return;
+      }
+
+      stopPreviewStream();
+      stopPreviewImagePolling();
+      lastPreviewFrame = null;
+      lastPreviewFrameAt = 0;
+      stopPreviewTimer();
+
+      if (terminalPreviewRenderedJobId === activeJobId) {
+        return;
+      }
+
+      if (payload.has_image && payload.image_url) {
+        previewEmpty.style.display = 'none';
+        previewImage.style.display = 'block';
+        const sep = payload.image_url.includes('?') ? '&' : '?';
+        previewImage.src = `${payload.image_url}${sep}t=${Date.now()}`;
+        terminalPreviewRenderedJobId = activeJobId;
+      } else {
+        showPreviewEmpty('Inference is running, preview frame not emitted yet.');
+        terminalPreviewRenderedJobId = '';
+      }
+    }
+
+    function startLogStream(jobId) {
+      closeLogStream();
+      const stream = new EventSource(`/api/inference/jobs/${encodeURIComponent(jobId)}/stream?from_end=1`);
+      logStream = stream;
+
+      stream.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(event.data || '{}');
+          if (payload && payload.chunk) {
+            appendLogChunk(payload.chunk);
+          }
+          if (payload && payload.status) {
+            activeJobLabel.textContent = `Active: ${jobId} (${payload.status})`;
+          }
+        } catch (err) {
+        }
+      };
+
+      stream.addEventListener('done', async (event) => {
+        try {
+          const payload = JSON.parse(event.data || '{}');
+          if (payload && payload.status) {
+            activeJobLabel.textContent = `Active: ${jobId} (${payload.status})`;
+          }
+        } catch (err) {
+        }
+
+        if (logStream === stream) {
+          closeLogStream();
+        }
+        await refreshJobs();
+        await refreshJobDetails();
+      });
+
+      stream.onerror = () => {
+        if (logStream === stream) {
+          closeLogStream();
+        }
+      };
+    }
+
+    async function openJob(jobId, statusHint) {
+      activeJobId = jobId;
+      lastPreviewFrame = null;
+      lastPreviewFrameAt = Date.now();
+      logAutoFollow = true;
+      logInteractionLock = false;
+      pendingLogChunks = '';
+      activeJobLabel.textContent = `Active: ${jobId}${statusHint ? ` (${statusHint})` : ''}`;
+      const logPayload = await fetchJson(`/api/inference/jobs/${encodeURIComponent(jobId)}/log?lines=500`);
+      jobLog.textContent = logPayload.text || '(log is empty)';
+      jobLog.scrollTop = jobLog.scrollHeight;
+      await refreshJobDetails();
+      await refreshPreview();
+      if (statusHint === 'running' || statusHint === 'queued' || statusHint === 'cancelling') {
+        startPreviewTimer();
+      } else {
+        stopPreviewTimer();
+      }
+      if (statusHint === 'running' || statusHint === 'queued' || statusHint === 'cancelling') {
+        startLogStream(jobId);
+      } else {
+        closeLogStream();
+      }
+    }
+
+    async function cancelJob(jobId) {
+      await fetchJson(`/api/inference/jobs/${encodeURIComponent(jobId)}/cancel`, {
+        method: 'POST',
+      });
+    }
+
+    async function refreshJobs() {
+      const jobs = await fetchJson('/api/inference/jobs');
+      if (!jobs.length) {
+        closeLogStream();
+        stopPreviewTimer();
+        stopPreviewStream();
+        stopPreviewImagePolling();
+        activeJobId = '';
+        lastPreviewFrame = null;
+        lastPreviewFrameAt = 0;
+        terminalPreviewRenderedJobId = '';
+        logAutoFollow = true;
+        logInteractionLock = false;
+        pendingLogChunks = '';
+        previewStatus.textContent = 'No preview available.';
+        showPreviewEmpty('No jobs yet.');
+        jobsBody.innerHTML = '<tr><td colspan="6" class="muted">No jobs yet.</td></tr>';
+        return;
+      }
+
+      jobsBody.innerHTML = '';
+      for (const job of jobs) {
+        const tr = document.createElement('tr');
+        const created = String(job.created_at || '').replace('T', ' ').slice(0, 19);
+        tr.innerHTML = `
+          <td>${job.id}</td>
+          <td><span class="${statusClassName(job.status)}">${job.status}</span></td>
+          <td>${job.weights_path || ''}</td>
+          <td>${job.media_path || ''}</td>
+          <td>${created}</td>
+          <td>
+            <button type="button" data-action="view">View Log</button>
+            <button type="button" data-action="cancel" ${canCancelStatus(job.status || '') ? '' : 'disabled'}>Cancel</button>
+          </td>
+        `;
+
+        tr.querySelector('button[data-action="view"]').addEventListener('click', async () => {
+          await openJob(job.id, job.status || '');
+        });
+
+        tr.querySelector('button[data-action="cancel"]').addEventListener('click', async () => {
+          try {
+            await cancelJob(job.id);
+            setStatus(`Cancellation requested for ${job.id}.`, false);
+            await refreshJobs();
+            if (activeJobId === job.id) {
+              await openJob(job.id, 'cancelling');
+            }
+          } catch (err) {
+            setStatus(err.message || String(err), true);
+          }
+        });
+
+        jobsBody.appendChild(tr);
+      }
+
+      if (activeJobId) {
+        const active = jobs.find((job) => job.id === activeJobId);
+        if (active) {
+          const status = active.status || '';
+          activeJobLabel.textContent = `Active: ${active.id}${status ? ` (${status})` : ''}`;
+          const isActive = status === 'running' || status === 'queued' || status === 'cancelling';
+          if (isActive || terminalPreviewRenderedJobId !== active.id) {
+            await refreshPreview();
+          }
+          if ((status === 'running' || status === 'queued' || status === 'cancelling') && !logStream) {
+            startLogStream(active.id);
+          }
+          if (status !== 'running' && status !== 'queued' && status !== 'cancelling' && logStream) {
+            closeLogStream();
+          }
+        } else {
+          activeJobId = '';
+          stopPreviewTimer();
+          stopPreviewStream();
+          stopPreviewImagePolling();
+          lastPreviewFrame = null;
+          lastPreviewFrameAt = 0;
+          terminalPreviewRenderedJobId = '';
+          logAutoFollow = true;
+          logInteractionLock = false;
+          pendingLogChunks = '';
+          previewStatus.textContent = 'No preview available.';
+          showPreviewEmpty('Selected job no longer exists in this run directory.');
+        }
+      }
+    }
+
+    async function runInference() {
+      const weightsPath = String(weightsPathInput.value || '').trim();
+      const mediaPath = String(mediaPathInput.value || '').trim();
+      if (!weightsPath) {
+        throw new Error('Weight path is required.');
+      }
+
+      const payload = {
+        weights_path: weightsPath,
+        media_path: mediaPath || null,
+        conf: Number(confInput.value || 0.25),
+        iou: Number(iouInput.value || 0.45),
+        imgsz: Number(imgszInput.value || 640),
+        device: String(deviceInput.value || '0').trim() || '0',
+        save_txt: !!saveTxtToggle.checked,
+        save_conf: !!saveConfToggle.checked,
+      };
+
+      const job = await fetchJson('/api/inference/run', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload),
+      });
+
+      setStatus(`Started inference job ${job.id}`, false);
+      await refreshJobs();
+      await openJob(job.id, job.status || 'queued');
+    }
+
+    weightsSelect.addEventListener('change', () => {
+      if (weightsSelect.value) {
+        weightsPathInput.value = weightsSelect.value;
+      }
+    });
+
+    mediaSelect.addEventListener('change', () => {
+      mediaPathInput.value = mediaSelect.value || '';
+    });
+
+    document.getElementById('reloadOptionsBtn').addEventListener('click', async () => {
+      try {
+        await loadOptions();
+        setStatus('Inference options refreshed.', false);
+      } catch (err) {
+        setStatus(err.message || String(err), true);
+      }
+    });
+
+    document.getElementById('runBtn').addEventListener('click', async () => {
+      try {
+        await runInference();
+      } catch (err) {
+        setStatus(err.message || String(err), true);
+      }
+    });
+
+    document.getElementById('refreshJobsBtn').addEventListener('click', async () => {
+      try {
+        await refreshJobs();
+        await refreshActiveLogTail();
+        setStatus('Jobs refreshed.', false);
+      } catch (err) {
+        setStatus(err.message || String(err), true);
+      }
+    });
+
+    setInterval(async () => {
+      try {
+        await refreshJobs();
+        await refreshActiveLogTail();
+      } catch (err) {
+      }
+    }, 5000);
+
+    window.addEventListener('beforeunload', () => {
+      closeLogStream();
+      stopPreviewTimer();
+      stopPreviewStream();
+      stopPreviewImagePolling();
+    });
+
+    previewImage.addEventListener('error', () => {
+      if (!activeJobId) {
+        return;
+      }
+      if (previewStreamJobId === activeJobId) {
+        stopPreviewStream();
+        startPreviewImagePolling(activeJobId);
+      }
+    });
+
+    jobLog.addEventListener('scroll', () => {
+      if (logInteractionLock || hasSelectionInLog()) {
+        return;
+      }
+      logAutoFollow = isLogNearBottom();
+    });
+
+    jobLog.addEventListener('mousedown', () => {
+      logInteractionLock = true;
+    });
+
+    jobLog.addEventListener('mouseup', () => {
+      setTimeout(() => {
+        const selecting = hasSelectionInLog();
+        logInteractionLock = selecting;
+        if (!selecting) {
+          flushPendingLogChunks();
+          logAutoFollow = isLogNearBottom();
+        }
+      }, 0);
+    });
+
+    document.addEventListener('selectionchange', () => {
+      const selecting = hasSelectionInLog();
+      if (selecting) {
+        logInteractionLock = true;
+        return;
+      }
+      if (logInteractionLock) {
+        logInteractionLock = false;
+      }
+      flushPendingLogChunks();
+    });
+
+    (async () => {
+      try {
+        setStatus('Loading options...', false);
+        await loadOptions();
+        await refreshJobs();
+        setStatus('Ready.', false);
+      } catch (err) {
+        setStatus(err.message || String(err), true);
+      }
+    })();
+  </script>
+</body>
+</html>

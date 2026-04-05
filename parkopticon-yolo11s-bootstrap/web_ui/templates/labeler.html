@@ -10,6 +10,9 @@
         header { background: #2a2a2a; padding: 12px 20px; border-bottom: 1px solid #333; display: flex; justify-content: space-between; align-items: center; }
         h1 { font-size: 18px; font-weight: 600; }
         .controls { display: flex; gap: 10px; align-items: center; }
+        .zoom-controls { display: flex; align-items: center; gap: 6px; }
+        .zoom-controls input[type="range"] { width: 120px; }
+        .zoom-level { font-size: 12px; color: #bbb; min-width: 44px; text-align: right; }
         button { background: #4a4a4a; color: #fff; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-size: 14px; transition: background 0.2s; }
         button:hover { background: #5a5a5a; }
         button.primary { background: #2563eb; }
@@ -19,7 +22,7 @@
         button:disabled { opacity: 0.5; cursor: not-allowed; }
         .main { flex: 1; display: flex; overflow: hidden; }
         .canvas-container { flex: 1; display: flex; justify-content: center; align-items: center; background: #111; position: relative; overflow: auto; padding: 20px; }
-        canvas { max-width: 100%; max-height: 100%; border: 1px solid #333; }
+        canvas { border: 1px solid #333; display: block; }
         .sidebar { width: 280px; background: #222; border-left: 1px solid #333; padding: 16px; overflow-y: auto; }
         .info-panel { margin-bottom: 20px; }
         .info-panel h3 { font-size: 14px; color: #888; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
@@ -35,18 +38,29 @@
         .box-item .coords { font-size: 11px; color: #666; font-family: monospace; }
         .shortcuts { font-size: 12px; color: #666; }
         .shortcuts kbd { background: #333; padding: 2px 6px; border-radius: 3px; font-family: monospace; }
-        .status-bar { background: #222; padding: 8px 20px; border-top: 1px solid #333; font-size: 13px; color: #888; display: flex; justify-content: space-between; }
+        .status-bar { background: #222; padding: 8px 20px; border-top: 1px solid #333; font-size: 13px; color: #888; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+        .save-state { font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid #15803d; background: #14532d; color: #bbf7d0; }
+        .save-state.unsaved { border-color: #dc2626; background: #7f1d1d; color: #fecaca; }
         .synthetic-badge { display: inline-block; background: #7c3aed; color: #fff; padding: 2px 8px; border-radius: 10px; font-size: 11px; margin-left: 8px; }
     </style>
 </head>
 <body>
-    <a href="/" style="display:inline-block; margin: 10px 20px; text-decoration: none; color: #2563eb; font-weight: bold;">&larr; Back to Tools</a>
+    <div style="display:flex; gap:16px; align-items:center; margin: 10px 20px;">
+        <a href="/" style="text-decoration: none; color: #2563eb; font-weight: bold;">&larr; Back to Tools</a>
+        <a href="/oversized-box-audit" style="text-decoration: none; color: #93c5fd; font-weight: 600;">Open Oversized Box Audit Grid</a>
+    </div>
     <header>
         <h1>ParkOpticon Labeler</h1>
         <div class="controls">
+            <label for="dirSelect" style="font-size:13px; color:#aaa;">Working Dir</label>
+            <select id="dirSelect" style="background:#2a2a2a; color:#fff; border:1px solid #444; padding:7px 10px; border-radius:4px; min-width:200px;">
+                <option value="">Loading...</option>
+            </select>
+            <span id="currentDir" style="font-size:12px; color:#8b8b8b; max-width:220px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"></span>
             <label for="queueFilter" style="font-size:13px; color:#aaa;">Queue</label>
             <select id="queueFilter" style="background:#2a2a2a; color:#fff; border:1px solid #444; padding:7px 10px; border-radius:4px;">
                 <option value="needs_review" selected>Needs review only</option>
+                <option value="synthetic_only">Synthetic pending only</option>
                 <option value="all">All pending</option>
                 <option value="autolabel_ok">Autolabel-approved only</option>
             </select>
@@ -60,6 +74,13 @@
                 <input id="showExcludedToggle" type="checkbox" />
                 Show excluded
             </label>
+            <div class="zoom-controls" title="Image zoom">
+                <button id="zoomOutBtn" type="button">-</button>
+                <input id="zoomSlider" type="range" min="25" max="400" step="5" value="100" />
+                <button id="zoomInBtn" type="button">+</button>
+            <button id="zoomResetBtn" type="button">100%</button>
+            <span id="zoomLevel" class="zoom-level">100%</span>
+            </div>
             <button id="prevBtn" title="Previous image">←</button>
             <button id="nextBtn" title="Next image">→</button>
             <button id="markInsertedBtn" class="primary" style="display:none;">Mark Inserted Vehicle</button>
@@ -87,11 +108,13 @@
                 <h3>Shortcuts</h3>
                 <p><kbd>←</kbd> / <kbd>→</kbd> Next/Prev</p>
                 <p><kbd>N</kbd> / <kbd>P</kbd> Next/Prev (alt)</p>
-                <p><kbd>0</kbd> Vehicle class</p>
+                <p><kbd>5</kbd> Vehicle class</p>
                 <p><kbd>1</kbd> Bylaw enforcement</p>
                 <p><kbd>2</kbd> Police old</p>
                 <p><kbd>3</kbd> Police new</p>
                 <p><kbd>4</kbd> Lookalike negative</p>
+                <p><kbd>Middle-click</kbd> Set vehicle</p>
+                <p><kbd>Right-click</kbd> Delete box</p>
                 <p><kbd>Del</kbd> Delete selected</p>
                 <p><kbd>S</kbd> Save</p>
             </div>
@@ -100,6 +123,7 @@
     <div class="status-bar">
         <span id="progress">0 / 0</span>
         <span id="reviewSpeed">Reviewed: 0 | Speed: 0.0/min</span>
+        <span id="saveState" class="save-state">All changes saved</span>
         <span id="hint">Click and drag to create box</span>
     </div>
     <script src="/static/app.js"></script>

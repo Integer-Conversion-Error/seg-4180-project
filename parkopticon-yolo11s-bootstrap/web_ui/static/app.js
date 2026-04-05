@@ -18,6 +18,20 @@ let autosaveOnNavigate = false;
 let showExcluded = false;
 let reviewSessionStartMs = Date.now();
 let reviewedImageIds = new Set();
+let currentDirectoryPath = null;
+let hasUnsavedChanges = false;
+let zoomLevel = 1;
+let transitionInFlight = false;
+
+const MIN_ZOOM = 0.25;
+const MAX_ZOOM = 4;
+const ZOOM_STEP = 0.25;
+
+const dirSelect = document.getElementById('dirSelect');
+const currentDirLabel = document.getElementById('currentDir');
+const zoomSlider = document.getElementById('zoomSlider');
+const zoomLevelLabel = document.getElementById('zoomLevel');
+const saveStateBadge = document.getElementById('saveState');
 
 const CLASS_NAMES = {
     0: 'vehicle',
@@ -43,9 +57,27 @@ function expectedClassToId(expectedClass) {
     return 0;
 }
 
+function updateSaveStateBadge() {
+    if (!saveStateBadge) {
+        return;
+    }
+    if (hasUnsavedChanges) {
+        saveStateBadge.textContent = 'Unsaved changes';
+        saveStateBadge.classList.add('unsaved');
+    } else {
+        saveStateBadge.textContent = 'All changes saved';
+        saveStateBadge.classList.remove('unsaved');
+    }
+}
+
+function setUnsavedChanges(dirty) {
+    hasUnsavedChanges = dirty;
+    updateSaveStateBadge();
+}
+
 async function loadImages() {
     const resp = await fetch(
-        `/api/labeler/images?queue=${encodeURIComponent(queueFilter)}&include_excluded=${showExcluded ? 'true' : 'false'}`
+        `/api/labeler/images?queue=${encodeURIComponent(queueFilter)}&status=all&include_excluded=${showExcluded ? 'true' : 'false'}`
     );
     images = await resp.json();
     document.getElementById('progress').textContent = `${images.length} images in queue`;
@@ -56,8 +88,78 @@ async function loadImages() {
         currentImage = null;
         boxes = [];
         selectedBoxIndex = -1;
+        setUnsavedChanges(false);
         render();
     }
+}
+
+function resetReviewSession() {
+    currentIndex = 0;
+    currentImage = null;
+    boxes = [];
+    selectedBoxIndex = -1;
+    setUnsavedChanges(false);
+    reviewSessionStartMs = Date.now();
+    reviewedImageIds = new Set();
+    updateReviewSpeedMetric();
+}
+
+async function loadWorkingDirectories() {
+    if (!dirSelect) {
+        return;
+    }
+
+    try {
+        const [dirsRes, currentRes] = await Promise.all([
+            fetch('/api/directories/list'),
+            fetch('/api/directories/current'),
+        ]);
+
+        if (!dirsRes.ok || !currentRes.ok) {
+            throw new Error('Directory APIs unavailable');
+        }
+
+        const dirs = await dirsRes.json();
+        const current = await currentRes.json();
+
+        dirSelect.innerHTML = '';
+        for (const d of dirs) {
+            const opt = document.createElement('option');
+            opt.value = d.path;
+            opt.textContent = d.label;
+            dirSelect.appendChild(opt);
+        }
+
+        if (current && current.path) {
+            currentDirectoryPath = current.path;
+            dirSelect.value = current.path;
+            if (currentDirLabel) {
+                currentDirLabel.textContent = `(current: ${current.name})`;
+                currentDirLabel.title = current.path;
+            }
+        }
+    } catch (err) {
+        console.error('Failed to load directories:', err);
+        dirSelect.innerHTML = '<option value="">Directory API unavailable</option>';
+        dirSelect.disabled = true;
+        if (currentDirLabel) {
+            currentDirLabel.textContent = '';
+        }
+    }
+}
+
+async function setWorkingDirectory(path) {
+    const resp = await fetch('/api/directories/set', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path }),
+    });
+
+    if (!resp.ok) {
+        throw new Error(`Failed to set directory (HTTP ${resp.status})`);
+    }
+
+    return resp.json();
 }
 
 async function loadImage(index) {
@@ -71,6 +173,7 @@ async function loadImage(index) {
     
     boxes = data.boxes || [];
     selectedBoxIndex = -1;
+    setUnsavedChanges(false);
     
     document.getElementById('imageId').textContent = data.image_id.substring(0, 12) + '...';
     document.getElementById('imageStatus').textContent = data.is_synthetic ? 'Synthetic' : 'Original';
@@ -84,12 +187,62 @@ async function loadImage(index) {
     imgElement.onload = () => {
         canvas.width = imgElement.naturalWidth;
         canvas.height = imgElement.naturalHeight;
+        applyZoom();
         render();
     };
     imgElement.src = data.image_path;
     
     updateBoxesList();
     updateProgress();
+}
+
+async function withTransitionLock(work) {
+    if (transitionInFlight) {
+        return false;
+    }
+    transitionInFlight = true;
+    try {
+        await work();
+        return true;
+    } finally {
+        transitionInFlight = false;
+    }
+}
+
+async function markCurrentImageReviewed() {
+    if (!currentImage) {
+        return;
+    }
+    if (currentImage.review_status !== 'done') {
+        const resp = await fetch(`/api/labeler/review/${currentImage.image_id}?status=done`, {
+            method: 'POST'
+        });
+        if (!resp.ok) {
+            throw new Error(`Failed to mark reviewed (HTTP ${resp.status})`);
+        }
+        currentImage.review_status = 'done';
+    }
+    reviewedImageIds.add(currentImage.image_id);
+    updateReviewSpeedMetric();
+}
+
+async function prepareCurrentImageForTransition() {
+    if (!currentImage) {
+        return true;
+    }
+
+    if (!hasUnsavedChanges) {
+        if (autosaveOnNavigate) {
+            await markCurrentImageReviewed();
+        }
+        return true;
+    }
+
+    if (autosaveOnNavigate) {
+        await saveCurrentLabels(false);
+        return true;
+    }
+    return window.confirm('You have unsaved box edits on this image. Navigate away and discard them?');
 }
 
 function buildYoloBoxes() {
@@ -107,11 +260,16 @@ async function saveCurrentLabels(showMessage = true) {
         return;
     }
     const yoloBoxes = buildYoloBoxes();
-    await fetch(`/api/labeler/labels/${currentImage.image_id}`, {
+    const resp = await fetch(`/api/labeler/labels/${currentImage.image_id}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ boxes: yoloBoxes })
     });
+    if (!resp.ok) {
+        throw new Error(`Failed to save labels (HTTP ${resp.status})`);
+    }
+    setUnsavedChanges(false);
+    currentImage.review_status = 'done';
     reviewedImageIds.add(currentImage.image_id);
     updateReviewSpeedMetric();
     if (showMessage) {
@@ -124,19 +282,51 @@ async function saveCurrentLabels(showMessage = true) {
 
 async function navigateTo(index) {
     if (index < 0 || index >= images.length) return;
+    await withTransitionLock(async () => {
+        try {
+            const canLeave = await prepareCurrentImageForTransition();
+            if (!canLeave) {
+                return;
+            }
 
-    if (index < currentIndex) {
-        const target = images[index];
-        if (target && target.review_status === 'done') {
-            await fetch(`/api/labeler/review/${target.image_id}?status=todo`, { method: 'POST' });
-            target.review_status = 'todo';
+            if (index < currentIndex) {
+                const target = images[index];
+                if (target && target.review_status === 'done') {
+                    await fetch(`/api/labeler/review/${target.image_id}?status=todo`, { method: 'POST' });
+                    target.review_status = 'todo';
+                }
+            }
+
+            await loadImage(index);
+        } catch (err) {
+            console.error(err);
+            const message = (err && err.message) ? err.message : String(err);
+            document.getElementById('hint').textContent = `Navigation failed: ${message}`;
         }
-    }
+    });
+}
 
-    if (autosaveOnNavigate && currentImage) {
-        await saveCurrentLabels(false);
+function clampZoom(value) {
+    return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, value));
+}
+
+function applyZoom() {
+    if (!canvas.width || !canvas.height) {
+        return;
     }
-    await loadImage(index);
+    canvas.style.width = `${Math.round(canvas.width * zoomLevel)}px`;
+    canvas.style.height = `${Math.round(canvas.height * zoomLevel)}px`;
+    if (zoomSlider) {
+        zoomSlider.value = String(Math.round(zoomLevel * 100));
+    }
+    if (zoomLevelLabel) {
+        zoomLevelLabel.textContent = `${Math.round(zoomLevel * 100)}%`;
+    }
+}
+
+function setZoom(nextZoom) {
+    zoomLevel = clampZoom(nextZoom);
+    applyZoom();
 }
 
 function render() {
@@ -187,6 +377,7 @@ function selectBox(index) {
     if (markInsertedMode && currentImage && currentImage.expected_class) {
         const expectedCls = expectedClassToId(currentImage.expected_class);
         boxes[index].cls = expectedCls;
+        setUnsavedChanges(true);
         markInsertedMode = false;
         document.getElementById('markInsertedBtn').textContent = 'Mark Inserted Vehicle';
         document.getElementById('hint').textContent = 'Click and drag to create box';
@@ -213,32 +404,96 @@ function updateReviewSpeedMetric() {
 
 function getCanvasCoords(e) {
     const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
+    const displayWidth = canvas.clientWidth || rect.width;
+    const displayHeight = canvas.clientHeight || rect.height;
+    const scaleX = canvas.width / displayWidth;
+    const scaleY = canvas.height / displayHeight;
     return {
-        x: (e.clientX - rect.left) * scaleX,
-        y: (e.clientY - rect.top) * scaleY
+        x: (e.clientX - rect.left - canvas.clientLeft) * scaleX,
+        y: (e.clientY - rect.top - canvas.clientTop) * scaleY
     };
 }
 
+function findBoxIndexAtCoords(coords) {
+    for (let i = boxes.length - 1; i >= 0; i--) {
+        const box = boxes[i];
+        if (coords.x >= box.x1 && coords.x <= box.x2 && coords.y >= box.y1 && coords.y <= box.y2) {
+            return i;
+        }
+    }
+    return -1;
+}
+
 canvas.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) {
+        if (e.button === 1) {
+            e.preventDefault();
+        }
+        return;
+    }
+
     const coords = getCanvasCoords(e);
     dragStart = coords;
     isDragging = true;
-    
-    for (let i = 0; i < boxes.length; i++) {
-        const box = boxes[i];
-        if (coords.x >= box.x1 && coords.x <= box.x2 && coords.y >= box.y1 && coords.y <= box.y2) {
-            selectedBoxIndex = i;
-            render();
-            updateBoxesList();
-            return;
-        }
+
+    const hitIndex = findBoxIndexAtCoords(coords);
+    if (hitIndex >= 0) {
+        selectedBoxIndex = hitIndex;
+        render();
+        updateBoxesList();
+        return;
     }
-    
+
     selectedBoxIndex = -1;
     render();
     updateBoxesList();
+});
+
+canvas.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    const coords = getCanvasCoords(e);
+    const hitIndex = findBoxIndexAtCoords(coords);
+    if (hitIndex < 0) {
+        return;
+    }
+
+    boxes.splice(hitIndex, 1);
+    if (selectedBoxIndex === hitIndex) {
+        selectedBoxIndex = -1;
+    } else if (selectedBoxIndex > hitIndex) {
+        selectedBoxIndex -= 1;
+    }
+    setUnsavedChanges(true);
+    render();
+    updateBoxesList();
+    const hint = document.getElementById('hint');
+    if (hint) {
+        hint.textContent = 'Deleted box via right-click';
+    }
+});
+
+canvas.addEventListener('auxclick', (e) => {
+    if (e.button !== 1) {
+        return;
+    }
+    e.preventDefault();
+
+    const coords = getCanvasCoords(e);
+    const hitIndex = findBoxIndexAtCoords(coords);
+    if (hitIndex < 0) {
+        return;
+    }
+
+    boxes[hitIndex].cls = 0;
+    selectedBoxIndex = hitIndex;
+    setUnsavedChanges(true);
+    render();
+    updateBoxesList();
+
+    const hint = document.getElementById('hint');
+    if (hint) {
+        hint.textContent = 'Set box class to vehicle via middle-click';
+    }
 });
 
 canvas.addEventListener('mousemove', (e) => {
@@ -278,6 +533,7 @@ canvas.addEventListener('mouseup', (e) => {
             boxes.push({ x1, y1, x2, y2, cls: 0 });
             selectedBoxIndex = boxes.length - 1;
         }
+        setUnsavedChanges(true);
         render();
         updateBoxesList();
     }
@@ -287,22 +543,85 @@ document.getElementById('prevBtn').onclick = () => navigateTo(currentIndex - 1);
 document.getElementById('nextBtn').onclick = () => navigateTo(currentIndex + 1);
 
 document.getElementById('queueFilter').onchange = async (e) => {
-    queueFilter = e.target.value;
-    currentIndex = 0;
-    reviewSessionStartMs = Date.now();
-    reviewedImageIds = new Set();
-    updateReviewSpeedMetric();
-    await loadImages();
+    await withTransitionLock(async () => {
+        const canLeave = await prepareCurrentImageForTransition();
+        if (!canLeave) {
+            e.target.value = queueFilter;
+            return;
+        }
+        queueFilter = e.target.value;
+        currentIndex = 0;
+        reviewSessionStartMs = Date.now();
+        reviewedImageIds = new Set();
+        updateReviewSpeedMetric();
+        await loadImages();
+    });
 };
 
 document.getElementById('showExcludedToggle').onchange = async (e) => {
-    showExcluded = !!e.target.checked;
-    currentIndex = 0;
-    reviewSessionStartMs = Date.now();
-    reviewedImageIds = new Set();
-    updateReviewSpeedMetric();
-    await loadImages();
+    await withTransitionLock(async () => {
+        const canLeave = await prepareCurrentImageForTransition();
+        if (!canLeave) {
+            e.target.checked = showExcluded;
+            return;
+        }
+        showExcluded = !!e.target.checked;
+        currentIndex = 0;
+        reviewSessionStartMs = Date.now();
+        reviewedImageIds = new Set();
+        updateReviewSpeedMetric();
+        await loadImages();
+    });
 };
+
+if (dirSelect) {
+    dirSelect.addEventListener('change', async () => {
+        await withTransitionLock(async () => {
+            const selectedPath = dirSelect.value;
+            if (!selectedPath || selectedPath === currentDirectoryPath) {
+                return;
+            }
+
+            const canLeave = await prepareCurrentImageForTransition();
+            if (!canLeave) {
+                if (currentDirectoryPath) {
+                    dirSelect.value = currentDirectoryPath;
+                }
+                return;
+            }
+
+            const priorPath = currentDirectoryPath;
+            const priorHint = document.getElementById('hint').textContent;
+            dirSelect.disabled = true;
+            document.getElementById('hint').textContent = 'Switching working directory...';
+
+            try {
+                const result = await setWorkingDirectory(selectedPath);
+                currentDirectoryPath = result.path;
+                if (currentDirLabel) {
+                    currentDirLabel.textContent = `(current: ${result.name})`;
+                    currentDirLabel.title = result.path;
+                }
+                resetReviewSession();
+                await loadImages();
+                document.getElementById('hint').textContent = `Working directory switched to ${result.name}`;
+            } catch (err) {
+                console.error(err);
+                if (priorPath) {
+                    dirSelect.value = priorPath;
+                }
+                document.getElementById('hint').textContent = `Directory switch failed: ${err.message || err}`;
+            } finally {
+                dirSelect.disabled = false;
+                setTimeout(() => {
+                    if (document.getElementById('hint').textContent.includes('Working directory switched')) {
+                        document.getElementById('hint').textContent = priorHint || 'Click and drag to create box';
+                    }
+                }, 2000);
+            }
+        });
+    });
+}
 
 async function jumpToImageId(rawId) {
     const imageId = (rawId || '').trim();
@@ -345,6 +664,7 @@ document.getElementById('imageSearchInput').addEventListener('keydown', async (e
 document.getElementById('addBoxBtn').onclick = () => {
     boxes.push({ x1: 100, y1: 100, x2: 300, y2: 200, cls: 0 });
     selectedBoxIndex = boxes.length - 1;
+    setUnsavedChanges(true);
     render();
     updateBoxesList();
 };
@@ -383,29 +703,35 @@ function handleShortcut(e) {
     } else if (key === 's') {
         e.preventDefault();
         document.getElementById('saveBtn').click();
-    } else if (key === '0' && selectedBoxIndex >= 0) {
+    } else if (key === '5' && selectedBoxIndex >= 0) {
         boxes[selectedBoxIndex].cls = 0;
+        setUnsavedChanges(true);
         render();
         updateBoxesList();
     } else if (key === '1' && selectedBoxIndex >= 0) {
         boxes[selectedBoxIndex].cls = 1;
+        setUnsavedChanges(true);
         render();
         updateBoxesList();
     } else if (key === '2' && selectedBoxIndex >= 0) {
         boxes[selectedBoxIndex].cls = 2;
+        setUnsavedChanges(true);
         render();
         updateBoxesList();
     } else if (key === '3' && selectedBoxIndex >= 0) {
         boxes[selectedBoxIndex].cls = 3;
+        setUnsavedChanges(true);
         render();
         updateBoxesList();
     } else if (key === '4' && selectedBoxIndex >= 0) {
         boxes[selectedBoxIndex].cls = 4;
+        setUnsavedChanges(true);
         render();
         updateBoxesList();
     } else if (key === 'delete' && selectedBoxIndex >= 0) {
         boxes.splice(selectedBoxIndex, 1);
         selectedBoxIndex = -1;
+        setUnsavedChanges(true);
         render();
         updateBoxesList();
     }
@@ -414,11 +740,44 @@ function handleShortcut(e) {
 window.addEventListener('keydown', handleShortcut, true);
 
 const autosaveInitial = localStorage.getItem('labeler_autosave_on_navigate');
-autosaveOnNavigate = autosaveInitial === '1';
+autosaveOnNavigate = autosaveInitial !== '0';
 const autosaveToggle = document.getElementById('autosaveToggle');
 if (autosaveToggle) {
     autosaveToggle.checked = autosaveOnNavigate;
 }
+
+const zoomOutBtn = document.getElementById('zoomOutBtn');
+if (zoomOutBtn) {
+    zoomOutBtn.onclick = () => setZoom(zoomLevel - ZOOM_STEP);
+}
+
+const zoomInBtn = document.getElementById('zoomInBtn');
+if (zoomInBtn) {
+    zoomInBtn.onclick = () => setZoom(zoomLevel + ZOOM_STEP);
+}
+
+const zoomResetBtn = document.getElementById('zoomResetBtn');
+if (zoomResetBtn) {
+    zoomResetBtn.onclick = () => setZoom(1);
+}
+
+if (zoomSlider) {
+    zoomSlider.addEventListener('input', (e) => {
+        const next = Number(e.target.value) / 100;
+        setZoom(next);
+    });
+}
+
+applyZoom();
+updateSaveStateBadge();
+
+window.addEventListener('beforeunload', (e) => {
+    if (!hasUnsavedChanges) {
+        return;
+    }
+    e.preventDefault();
+    e.returnValue = '';
+});
 
 const showExcludedToggle = document.getElementById('showExcludedToggle');
 if (showExcludedToggle) {
@@ -427,4 +786,15 @@ if (showExcludedToggle) {
 
 updateReviewSpeedMetric();
 
-loadImages();
+async function initializeLabeler() {
+    await loadWorkingDirectories();
+    await loadImages();
+
+    const params = new URLSearchParams(window.location.search || '');
+    const initialImageId = (params.get('image_id') || '').trim();
+    if (initialImageId) {
+        await jumpToImageId(initialImageId);
+    }
+}
+
+initializeLabeler();

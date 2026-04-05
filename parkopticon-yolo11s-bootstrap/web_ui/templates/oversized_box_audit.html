@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Oversized Box Audit</title>
+    <style>
+        :root {
+            --bg: #0b1020;
+            --panel: #121a2b;
+            --tile: #1b2438;
+            --text: #e5e7eb;
+            --muted: #94a3b8;
+            --border: #334155;
+            --accent: #2563eb;
+            --danger: #dc2626;
+            --danger-border: #7f1d1d;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            background: radial-gradient(circle at top, #111a2f 0%, var(--bg) 60%);
+            color: var(--text);
+            font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        .back-link {
+            display: inline-block;
+            margin: 12px 18px;
+            color: #93c5fd;
+            text-decoration: none;
+            font-weight: 600;
+        }
+
+        .layout {
+            height: calc(100vh - 52px);
+            display: grid;
+            grid-template-rows: auto auto 1fr;
+        }
+
+        .toolbar {
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+            padding: 12px 16px;
+            background: rgba(18, 26, 43, 0.96);
+            border-bottom: 1px solid var(--border);
+            backdrop-filter: blur(8px);
+        }
+
+        .bounds-group {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 4px 8px;
+            background: #0b1220;
+        }
+
+        .bounds-group strong {
+            font-size: 12px;
+            color: #cbd5e1;
+            min-width: 36px;
+        }
+
+        .bounds-group input {
+            width: 78px;
+        }
+
+        .toolbar label {
+            color: var(--muted);
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .toolbar select,
+        .toolbar input,
+        .toolbar button {
+            border: 1px solid var(--border);
+            background: #0b1220;
+            color: var(--text);
+            border-radius: 8px;
+            padding: 8px 10px;
+            font-size: 13px;
+        }
+
+        .toolbar button {
+            cursor: pointer;
+            background: #1e293b;
+        }
+
+        .toolbar button:hover { border-color: #64748b; }
+        .toolbar button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+        .toolbar .danger {
+            background: #2a1111;
+            border-color: var(--danger-border);
+            color: #fecaca;
+        }
+
+        .toolbar .danger:hover { background: #3b1010; }
+
+        .summary {
+            padding: 10px 16px;
+            border-bottom: 1px solid var(--border);
+            background: rgba(11, 18, 32, 0.9);
+            color: var(--muted);
+            font-size: 13px;
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .summary strong { color: #cbd5e1; }
+
+        .grid-wrap {
+            overflow: auto;
+            padding: 12px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 12px;
+        }
+
+        .tile {
+            background: var(--tile);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 6px 14px rgba(0, 0, 0, 0.25);
+            position: relative;
+        }
+
+        .tile.selected {
+            border-color: #60a5fa;
+            box-shadow: 0 0 0 1px #3b82f6 inset, 0 8px 16px rgba(37, 99, 235, 0.25);
+        }
+
+        .select-chip {
+            position: absolute;
+            top: 8px;
+            left: 8px;
+            z-index: 3;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(15, 23, 42, 0.82);
+            border: 1px solid #475569;
+            border-radius: 999px;
+            padding: 3px 8px;
+            font-size: 12px;
+            color: #e2e8f0;
+            cursor: pointer;
+        }
+
+        .select-chip input { accent-color: #3b82f6; }
+
+        .image-wrap {
+            position: relative;
+            background: #0f172a;
+        }
+
+        .image-wrap img {
+            width: 100%;
+            display: block;
+            background: #0f172a;
+        }
+
+        .overlay {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+
+        .badge {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background: rgba(15, 23, 42, 0.8);
+            border: 1px solid #475569;
+            border-radius: 999px;
+            padding: 2px 8px;
+            font-size: 12px;
+            color: #e2e8f0;
+        }
+
+        .meta {
+            padding: 10px 12px;
+            display: grid;
+            gap: 6px;
+            font-size: 12px;
+            color: var(--muted);
+        }
+
+        .meta .id {
+            color: var(--text);
+            font-weight: 600;
+            font-size: 13px;
+            word-break: break-all;
+        }
+
+        .meta .actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .meta a {
+            color: #93c5fd;
+            text-decoration: none;
+            font-weight: 600;
+        }
+
+        .empty {
+            border: 1px dashed var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            color: var(--muted);
+        }
+    </style>
+</head>
+<body>
+    <a class="back-link" href="/">&larr; Back to Tools</a>
+    <div class="layout">
+        <div class="toolbar">
+            <label for="dirSelect">Working Dir</label>
+            <select id="dirSelect">
+                <option value="">Loading...</option>
+            </select>
+            <span id="currentDir" style="color:#94a3b8; font-size:12px;"></span>
+
+            <div class="bounds-group" title="Width bounds (percent or ratio)">
+                <strong>Width</strong>
+                <label for="widthMinInput" style="font-size:12px;">Min</label>
+                <input id="widthMinInput" type="number" min="0" max="100" step="0.01" value="60">
+                <label for="widthMaxInput" style="font-size:12px;">Max</label>
+                <input id="widthMaxInput" type="number" min="0" max="100" step="0.01" value="">
+            </div>
+
+            <div class="bounds-group" title="Height bounds (percent or ratio)">
+                <strong>Height</strong>
+                <label for="heightMinInput" style="font-size:12px;">Min</label>
+                <input id="heightMinInput" type="number" min="0" max="100" step="0.01" value="">
+                <label for="heightMaxInput" style="font-size:12px;">Max</label>
+                <input id="heightMaxInput" type="number" min="0" max="100" step="0.01" value="">
+            </div>
+
+            <div class="bounds-group" title="Area bounds (percent or ratio)">
+                <strong>Area</strong>
+                <label for="areaMinInput" style="font-size:12px;">Min</label>
+                <input id="areaMinInput" type="number" min="0" max="100" step="0.01" value="">
+                <label for="areaMaxInput" style="font-size:12px;">Max</label>
+                <input id="areaMaxInput" type="number" min="0" max="100" step="0.01" value="">
+            </div>
+
+            <label style="display:flex; align-items:center; gap:6px; margin-left:4px;">
+                <input id="includeRejectedToggle" type="checkbox">
+                Include rejected
+            </label>
+
+            <button id="auditBtn">Audit Grid</button>
+            <button id="selectAllBtn">Select All In Grid</button>
+            <button id="clearSelectionBtn">Clear Selection</button>
+            <button id="pruneBtn" class="danger" disabled>Prune Selected Boxes</button>
+        </div>
+
+        <div class="summary">
+            <span id="summaryMain"><strong>Not run:</strong> configure metric/threshold and click Audit Grid.</span>
+            <span id="summaryDetail"></span>
+        </div>
+
+        <div class="grid-wrap">
+            <div id="grid" class="grid"></div>
+        </div>
+    </div>
+    <script src="/static/oversized_box_audit.js"></script>
+</body>
+</html>

@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lookalike Tracker</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1a1a1a; color: #e0e0e0; height: 100vh; display: flex; flex-direction: column; }
+        header { background: #2a2a2a; padding: 12px 20px; border-bottom: 1px solid #333; display: flex; justify-content: space-between; align-items: center; }
+        h1 { font-size: 18px; font-weight: 600; }
+        .controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+        .zoom-controls { display: flex; align-items: center; gap: 6px; }
+        .zoom-controls input[type="range"] { width: 120px; }
+        .zoom-level { font-size: 12px; color: #bbb; min-width: 44px; text-align: right; }
+        button { background: #4a4a4a; color: #fff; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-size: 14px; transition: background 0.2s; }
+        button:hover { background: #5a5a5a; }
+        button.primary { background: #2563eb; }
+        button.primary:hover { background: #3b82f6; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        .main { flex: 1; display: flex; overflow: hidden; }
+        .canvas-container { flex: 1; display: flex; justify-content: center; align-items: center; background: #111; position: relative; overflow: auto; padding: 20px; }
+        canvas { border: 1px solid #333; display: block; }
+        .sidebar { width: 340px; background: #222; border-left: 1px solid #333; padding: 16px; overflow-y: auto; }
+        .info-panel { margin-bottom: 18px; }
+        .info-panel h3 { font-size: 13px; color: #888; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .info-panel p { font-size: 13px; margin-bottom: 5px; }
+        .box-meta-item { background: #2a2a2a; border-radius: 6px; padding: 10px; margin-bottom: 8px; border-left: 4px solid #a78bfa; }
+        .box-meta-item label { display: block; margin-bottom: 6px; color: #bbb; font-size: 12px; }
+        .box-meta-item select { width: 100%; background: #1f2937; color: #fff; border: 1px solid #475569; border-radius: 4px; padding: 7px; }
+        .coords { color: #94a3b8; font-size: 11px; margin-top: 6px; font-family: monospace; }
+        .info-panel kbd { background: #333; color: #fff; padding: 2px 6px; border-radius: 3px; font-family: monospace; font-size: 11px; }
+        .status-bar { background: #222; padding: 8px 20px; border-top: 1px solid #333; font-size: 13px; color: #888; display: flex; justify-content: space-between; }
+    </style>
+</head>
+<body>
+    <a href="/" style="display:inline-block; margin: 10px 20px; text-decoration: none; color: #2563eb; font-weight: bold;">&larr; Back to Tools</a>
+    <header>
+        <h1>Lookalike Negative Tracker</h1>
+        <div class="controls">
+            <label for="dirSelect" style="font-size:13px; color:#aaa;">Working Dir</label>
+            <select id="dirSelect" style="background:#2a2a2a; color:#fff; border:1px solid #444; padding:7px 10px; border-radius:4px; min-width:200px;">
+                <option value="">Loading...</option>
+            </select>
+            <span id="currentDir" style="font-size:12px; color:#8b8b8b; max-width:220px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"></span>
+            <label style="font-size:13px; color:#aaa; display:flex; align-items:center; gap:6px;">
+                <input id="autosaveToggle" type="checkbox" />
+                Autosave on next/prev
+            </label>
+            <div class="zoom-controls" title="Image zoom">
+                <button id="zoomOutBtn" type="button">-</button>
+                <input id="zoomSlider" type="range" min="25" max="400" step="5" value="100" />
+                <button id="zoomInBtn" type="button">+</button>
+                <button id="zoomResetBtn" type="button">100%</button>
+                <span id="zoomLevel" class="zoom-level">100%</span>
+            </div>
+            <button id="prevBtn" title="Previous image">&larr;</button>
+            <button id="nextBtn" title="Next image">&rarr;</button>
+            <button id="saveBtn" class="primary">Save (S)</button>
+        </div>
+    </header>
+    <div class="main">
+        <div class="canvas-container">
+            <canvas id="canvas"></canvas>
+        </div>
+        <div class="sidebar">
+            <div class="info-panel">
+                <h3>Image Info</h3>
+                <p>ID: <span id="imageId">-</span></p>
+                <p>Status: <span id="imageStatus">-</span></p>
+                <p>Expected: <span id="expectedClass">-</span></p>
+                <p>Lookalike boxes: <span id="lookalikeCount">0</span></p>
+            </div>
+            <div class="info-panel">
+                <h3>Similarity Tags</h3>
+                <div id="boxMetaList"></div>
+            </div>
+            <div class="info-panel">
+                <h3>Shortcuts</h3>
+                <p><kbd>&larr;</kbd> / <kbd>&rarr;</kbd> Prev/Next</p>
+                <p><kbd>S</kbd> Save</p>
+                <p><kbd>1-4</kbd> Set class 1-4</p>
+                <p><kbd>5</kbd> Set normal vehicle</p>
+                <p><kbd>Middle-click</kbd> Set vehicle</p>
+                <p><kbd>Right-click</kbd> Delete box</p>
+                <p><kbd>Del</kbd> Delete selected</p>
+                <p>Use zoom +/- or slider</p>
+            </div>
+        </div>
+    </div>
+    <div class="status-bar">
+        <span id="progress">0 / 0</span>
+        <span id="hint">Loading lookalike queue...</span>
+    </div>
+    <script src="/static/lookalike_tracker.js"></script>
+</body>
+</html>
