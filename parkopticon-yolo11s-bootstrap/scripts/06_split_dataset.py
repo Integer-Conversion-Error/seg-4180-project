@@ -67,6 +67,10 @@ def get_group_key(row: dict) -> str:
         return f"loc:{lat},{lng}"
 
 
+def is_rejected(row: dict) -> bool:
+    return (row.get("review_status") or "").strip().lower() == "rejected"
+
+
 def count_class_instances(manifest: list, split_name: str, class_name: str) -> int:
     """Count instances of a class in a given split."""
     count = 0
@@ -244,40 +248,43 @@ def rebalance_splits(manifest: list, violations: list) -> int:
 
     return groups_moved
 
+
 def ensure_synthetic_pano_inheritance(manifest: list) -> list:
     """For synthetic images, inherit pano_id from parent_image_id.
-    
+
     If a synthetic image has parent_image_id set and no pano_id,
     copy pano_id from the parent image.
-    
+
     Args:
         manifest: List of image records
-    
+
     Returns:
         Updated manifest with pano_id inheritance applied
     """
     # Build lookup map: image_id -> row
     image_lookup = {row["image_id"]: row for row in manifest}
-    
+
     updated_count = 0
     inherited_count_by_class = defaultdict(int)
-    
+
     for row in manifest:
         parent_id = row.get("parent_image_id", "")
         if not parent_id:
             continue
-        
+
         # This is a synthetic image
         current_pano = row.get("pano_id", "")
         if current_pano:
             continue  # Already has pano_id
-        
+
         # Get parent's pano_id
         parent_row = image_lookup.get(parent_id)
         if not parent_row:
-            logger.debug(f"Parent image {parent_id} not found for synthetic {row['image_id']}")
+            logger.debug(
+                f"Parent image {parent_id} not found for synthetic {row['image_id']}"
+            )
             continue
-        
+
         parent_pano = parent_row.get("pano_id", "")
         if parent_pano:
             row["pano_id"] = parent_pano
@@ -285,47 +292,47 @@ def ensure_synthetic_pano_inheritance(manifest: list) -> list:
             # Track by class for detailed logging
             class_name = row.get("expected_inserted_class", "unknown")
             inherited_count_by_class[class_name] += 1
-    
+
     if updated_count > 0:
-        logger.info(f"\n{'='*70}")
+        logger.info(f"\n{'=' * 70}")
         logger.info(f"PANO_ID INHERITANCE SUMMARY")
-        logger.info(f"{'='*70}")
+        logger.info(f"{'=' * 70}")
         logger.info(f"Total synthetic images with inherited pano_id: {updated_count}")
         logger.info(f"")
         logger.info(f"Breakdown by class:")
         for class_name in sorted(inherited_count_by_class.keys()):
             count = inherited_count_by_class[class_name]
             logger.info(f"  {class_name}: {count}")
-        logger.info(f"{'='*70}")
+        logger.info(f"{'=' * 70}")
     else:
         logger.info("No synthetic images found or all already had pano_id assigned")
-    
+
     return manifest
 
 
 def validate_no_leakage(manifest: list) -> list:
     """Validate that no pano_id group appears in multiple splits.
-    
+
     Groups by pano_id (or location+heading fallback). Checks that
     each group appears in only one split (train, val, or test).
-    
+
     Args:
         manifest: List of image records with 'split' assigned
-    
+
     Returns:
         List of leaking group_keys (empty if no leakage detected)
     """
     # Map group_key -> set of splits
     group_splits = defaultdict(set)
-    
+
     for row in manifest:
         split = row.get("split", "")
         if not split:
             continue
-        
+
         group_key = get_group_key(row)
         group_splits[group_key].add(split)
-    
+
     # Find groups that appear in multiple splits
     leaking_groups = []
     for group_key, splits in group_splits.items():
@@ -334,13 +341,14 @@ def validate_no_leakage(manifest: list) -> list:
             logger.error(
                 f"Leakage detected: {group_key} appears in splits: {', '.join(sorted(splits))}"
             )
-    
+
     if leaking_groups:
         logger.warning(f"Total leaking groups: {len(leaking_groups)}")
     else:
         logger.info("✓ No leakage detected: all groups in single splits")
-    
+
     return leaking_groups
+
 
 def main():
     parser = argparse.ArgumentParser(description="Split dataset with group awareness")
@@ -385,6 +393,11 @@ def main():
         default=True,
         help="Validate that no pano groups appear in multiple splits (default: True)",
     )
+    parser.add_argument(
+        "--include-rejected",
+        action="store_true",
+        help="Include images with review_status=rejected (default: exclude)",
+    )
     args = parser.parse_args()
 
     # Parse custom threshold overrides
@@ -407,17 +420,22 @@ def main():
         return
 
     manifest = load_manifest(manifest_path)
-    
+
     # ========================================================================
     # Apply Synthetic Pano Inheritance
     # ========================================================================
     manifest = ensure_synthetic_pano_inheritance(manifest)
 
-    valid_images = [
-        row
-        for row in manifest
-        if row.get("status") == "ok" and Path(row.get("file_path", "")).exists()
-    ]
+    valid_images = []
+    for row in manifest:
+        if not args.include_rejected and is_rejected(row):
+            row["split"] = ""
+            continue
+        if row.get("status") != "ok":
+            continue
+        if not Path(row.get("file_path", "")).exists():
+            continue
+        valid_images.append(row)
 
     groups = defaultdict(list)
     for row in valid_images:
@@ -475,17 +493,17 @@ def main():
 
         all_violations = []
         for split in ["val", "test"]:
-            violations = validate_split_thresholds(manifest, split)
+            violations = validate_split_thresholds(valid_images, split)
             all_violations.extend([(split, v) for v in violations])
 
         if all_violations:
             logger.warning(f"\nTotal violations detected: {len(all_violations)}")
-            groups_moved = rebalance_splits(manifest, all_violations)
+            groups_moved = rebalance_splits(valid_images, all_violations)
             if groups_moved > 0:
                 logger.info(f"Rechecking violations after rebalancing...")
                 # Recount splits after rebalancing
                 split_counts = defaultdict(int)
-                for row in manifest:
+                for row in valid_images:
                     split = row.get("split", "train")
                     split_counts[split] += 1
                 logger.info("Updated split counts after rebalancing:")
@@ -497,7 +515,7 @@ def main():
             logger.info("\nAll threshold validation checks passed!")
     else:
         logger.info("Threshold validation skipped (--skip-threshold-check flag set)")
-    
+
     # ========================================================================
     # Validate Leakage
     # ========================================================================
@@ -505,9 +523,11 @@ def main():
         logger.info("\n" + "=" * 70)
         logger.info("LEAKAGE VALIDATION")
         logger.info("=" * 70)
-        leaking_groups = validate_no_leakage(manifest)
+        leaking_groups = validate_no_leakage(valid_images)
         if leaking_groups:
-            logger.error(f"\nCritical: {len(leaking_groups)} groups appear in multiple splits!")
+            logger.error(
+                f"\nCritical: {len(leaking_groups)} groups appear in multiple splits!"
+            )
             logger.error("This will cause data leakage. Please review the splits.")
         else:
             logger.info("\n✓ Leakage validation passed!")
@@ -517,6 +537,8 @@ def main():
     for split in ["train", "val", "test"]:
         img_dir = out_dir / split / "images"
         lbl_dir = out_dir / split / "labels"
+        if img_dir.parent.exists():
+            shutil.rmtree(img_dir.parent)
         img_dir.mkdir(parents=True, exist_ok=True)
         lbl_dir.mkdir(parents=True, exist_ok=True)
 

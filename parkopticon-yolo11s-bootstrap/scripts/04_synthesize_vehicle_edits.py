@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import random
+import re
 import sys
 import threading
 import time
@@ -286,71 +287,101 @@ def save_manifest(manifest: list, manifest_path: Path):
         writer.writerows(manifest)
 
 
-# XB|
-# XB|# Cardinal angle suffixes for grouping
-# Cardinal angle suffixes for grouping and matching
 CARDINAL_ANGLES = ["N", "W", "S", "E"]  # Front, Left, Rear, Right
+CARDINAL_NAME_TO_ANGLE = {
+    "front": "N",
+    "rear": "S",
+    "back": "S",
+    "left": "W",
+    "right": "E",
+}
+
+
+def _extract_cardinal_angle(stem: str) -> Optional[str]:
+    for angle in CARDINAL_ANGLES:
+        if stem.endswith(f"_{angle}"):
+            return angle
+
+    tokens = [token for token in re.split(r"[^a-z0-9]+", stem.lower()) if token]
+    keyword_angles = [
+        CARDINAL_NAME_TO_ANGLE[token]
+        for token in tokens
+        if token in CARDINAL_NAME_TO_ANGLE
+    ]
+    if not keyword_angles:
+        return None
+
+    if len(set(keyword_angles)) != 1:
+        return None
+    return keyword_angles[0]
+
+
+def _reference_parent_key(dataset_dir: Path, image: Path) -> str:
+    try:
+        rel = image.parent.relative_to(dataset_dir).as_posix()
+        return rel if rel != "." else dataset_dir.name
+    except ValueError:
+        return image.parent.as_posix()
+
+
+def _keyword_group_key(stem: str, angle: str) -> str:
+    tokens = [token for token in re.split(r"[^a-z0-9]+", stem.lower()) if token]
+    base_tokens = []
+    matched = 0
+    for token in tokens:
+        mapped = CARDINAL_NAME_TO_ANGLE.get(token)
+        if mapped is None:
+            base_tokens.append(token)
+            continue
+        if mapped != angle:
+            return ""
+        matched += 1
+
+    if matched == 0:
+        return ""
+    return "_".join(base_tokens) if base_tokens else "__cardinal_keywords__"
 
 
 def load_reference_images(dataset_dir: Path) -> dict[str, list[Path]]:
-    """Load reference images grouped by vehicle ID with cardinal angles."""
     if not dataset_dir.exists():
-        logger.warning(f"Reference directory not found: {dataset_dir}")
+        logger.warning("Reference directory not found: %s", dataset_dir)
         return {}
 
     extensions = {".jpg", ".jpeg", ".png", ".webp"}
-    groups: dict[str, list[Path]] = {}
-    for ext in extensions:
-        for image in dataset_dir.glob(f"**/*{ext}"):
-            stem = image.stem
-            base_id = stem
-            for angle in CARDINAL_ANGLES:
-                if stem.endswith(f"_{angle}"):
-                    base_id = stem[: -len(f"_{angle}")]
-                    break
-            if base_id not in groups:
-                groups[base_id] = []
-            groups[base_id].append(image)
+    grouped: dict[str, dict[str, Path]] = {}
 
-    # Filter groups that don't have all 4 cardinal angles if needed, or just keep them all
-    return groups
-    # RX|    """Load reference images grouped by vehicle ID with cardinal angles."""
-    # XS|    if not dataset_dir.exists():
-    # NW|        logger.warning(f"Reference directory not found: {dataset_dir}")
-    # YJ|        return {}
-    # PZ|
-    # VX|    extensions = {'.jpg', '.jpeg', '.png', '.webp'}
-    # BZ|    groups: dict[str, list[Path]] = {}
-    # RW|    for ext in extensions:
-    # VM|        for image in dataset_dir.glob(f'*{ext}'):
-    # VM|            for image in dataset_dir.glob(f'*{ext.upper()}'):
-    # RP|                stem = image.stem
-    # RP|                base_id = stem
-    # RP|                for angle in CARDINAL_ANGLES:
-    # RP|                    if stem.endswith(angle):
-    # RP|                        base_id = stem[:-len(angle)]
-    # RP|                        break
-    # RP|                if base_id not in groups:
-    # RP|                    groups[base_id] = []
-    # RP|                groups[base_id].append(image)
-    # RP|
-    # KJ|    # Sort angles within groups if possible
-    # RP|    for base_id in groups:
-    # RP|        groups[base_id] = sorted(groups[base_id])
-    # KJ|    return groups
+    for image in sorted(dataset_dir.rglob("*")):
+        if not image.is_file() or image.suffix.lower() not in extensions:
+            continue
 
-    """Load all reference images from a directory."""
-    if not dataset_dir.exists():
-        logger.warning(f"Reference directory not found: {dataset_dir}")
-        return []
+        stem = image.stem
+        angle = _extract_cardinal_angle(stem)
+        if angle is None:
+            continue
 
-    extensions = {".jpg", ".jpeg", ".png", ".webp"}
-    images = []
-    for ext in extensions:
-        images.extend(dataset_dir.glob(f"*{ext}"))
-        images.extend(dataset_dir.glob(f"*{ext.upper()}"))
+        parent_key = _reference_parent_key(dataset_dir, image)
+        suffix = f"_{angle}"
+        if stem.endswith(suffix):
+            base_stem = stem[: -len(suffix)]
+            group_id = f"{parent_key}/{base_stem}" if base_stem else parent_key
+        else:
+            keyword_key = _keyword_group_key(stem, angle)
+            if not keyword_key:
+                continue
+            group_id = f"{parent_key}/{keyword_key}"
 
-    return sorted(set(images))
+        grouped.setdefault(group_id, {})
+        grouped[group_id].setdefault(angle, image)
+
+    complete_groups: dict[str, list[Path]] = {}
+    for group_id, angle_map in grouped.items():
+        if all(angle in angle_map for angle in CARDINAL_ANGLES):
+            complete_groups[group_id] = [angle_map[angle] for angle in CARDINAL_ANGLES]
+
+    if not complete_groups:
+        logger.warning("No complete cardinal reference sets found in %s", dataset_dir)
+
+    return complete_groups
 
 
 def synthesize_image(
@@ -973,8 +1004,18 @@ def main():
     # Verify we have reference images for enforcement classes
     for ref_type, refs in reference_images.items():
         if not refs:
+            ref_dir = (
+                ENFORCEMENT_DATASET_DIR
+                if ref_type == "enforcement"
+                else POLICE_OLD_DATASET_DIR
+                if ref_type == "police_old"
+                else POLICE_NEW_DATASET_DIR
+            )
             logger.error(
-                f"No reference images found for {ref_type} in {ENFORCEMENT_DATASET_DIR if ref_type == 'enforcement' else POLICE_OLD_DATASET_DIR if ref_type == 'police_old' else POLICE_NEW_DATASET_DIR}"
+                "No complete cardinal reference sets found for %s in %s. "
+                "Expected 4-view sets (N/W/S/E suffixes or front/left/rear/right filenames).",
+                ref_type,
+                ref_dir,
             )
             return
 

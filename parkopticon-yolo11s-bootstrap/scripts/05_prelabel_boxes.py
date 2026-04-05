@@ -376,6 +376,10 @@ def resolve_target_class_id(row: dict) -> int | None:
     return None
 
 
+def is_rejected(row: dict) -> bool:
+    return (row.get("review_status") or "").strip().lower() == "rejected"
+
+
 def main():
     parser = argparse.ArgumentParser(description="Pre-label bounding boxes")
     parser.add_argument(
@@ -409,6 +413,11 @@ def main():
         default="reports/prelabel_vehicle_count_hist.png",
         help="Output PNG path for prelabel vehicle-count histogram",
     )
+    parser.add_argument(
+        "--include-rejected",
+        action="store_true",
+        help="Include images with review_status=rejected (default: exclude)",
+    )
     args = parser.parse_args()
 
     manifest_path = Path(args.manifest)
@@ -439,6 +448,8 @@ def main():
         file_path = Path(row.get("file_path", ""))
 
         if not file_path.exists() or row.get("status") != "ok":
+            continue
+        if not args.include_rejected and is_rejected(row):
             continue
 
         is_synthetic = row.get("is_synthetic") == "1"
