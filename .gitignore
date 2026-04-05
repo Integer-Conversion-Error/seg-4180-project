@@ -50,3 +50,38 @@ parkopticon-yolo11s-bootstrap/lists/excluded_from_synth.txt
 *.tmp
 *.temp
 *.log
+*.bak
+*.bak[0-9]*
+
+# LaTeX build artifacts
+parkopticon-yolo11s-bootstrap/docs/latex_report/*.bak*
+parkopticon-yolo11s-bootstrap/docs/latex_report/*.fdb_latexmk
+parkopticon-yolo11s-bootstrap/docs/latex_report/*.fls
+
+# Temp touchup images (working directory)
+parkopticon-yolo11s-bootstrap/temp_touchups/
+
+# Reference dataset images (too large, not needed in repo)
+parkopticon-yolo11s-bootstrap/enforcement-dataset/
+parkopticon-yolo11s-bootstrap/police-dataset-old/
+parkopticon-yolo11s-bootstrap/police-dataset-new/
+
+# Test videos (too large)
+parkopticon-yolo11s-bootstrap/test-videos/
+
+# Server logs
+parkopticon-yolo11s-bootstrap/server.err
+parkopticon-yolo11s-bootstrap/server.out
+
+# Processing lists (intermediate artifacts)
+parkopticon-yolo11s-bootstrap/lists/bad_synthetics.txt
+parkopticon-yolo11s-bootstrap/lists/empty_test.txt
+
+# Logs directory
+parkopticon-yolo11s-bootstrap/logs/
+
+# Root-level points template (use manifests/ instead)
+parkopticon-yolo11s-bootstrap/points.csv
+
+# Latex report supplementary files (not build artifacts)
+parkopticon-yolo11s-bootstrap/docs/latex_report/report_author_questions.md
