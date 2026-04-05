@@ -84,6 +84,63 @@ make train
 make eval
 ```
 
+### Rejected Image Policy (Prelabel, Labeler, Split, Train)
+
+Rows marked `review_status=rejected` in `manifests/images.csv` are now excluded by default across labeling and training prep. Rejected rows are not deleted.
+
+- **Prelabel (`05_prelabel_boxes.py`)**: skips rejected rows by default; override with `--include-rejected`
+- **Labeler (`web_ui/app.py`)**: rejected rows are hidden by default; override with startup flag `--labeler-include-rejected`
+- **Split (`06_split_dataset.py`)**: rejected rows are excluded by default; override with `--include-rejected`
+- **Train (`07_train_yolo.py`)**: blocks training if rejected rows are assigned to splits or still present in split image dirs; override with `--include-rejected`
+
+Run-scoped examples:
+
+```bash
+# Prelabel (default excludes rejected)
+python scripts/05_prelabel_boxes.py \
+  --manifest runs/Benchmark_Run_002/manifests/images.csv \
+  --out-dir runs/Benchmark_Run_002/data/labels_autogen
+
+# Launch UI (default hides rejected in labeler)
+python web_ui/app.py --run-dir runs/Benchmark_Run_002
+
+# Optional: show rejected in labeler queues
+python web_ui/app.py --run-dir runs/Benchmark_Run_002 --labeler-include-rejected
+
+# Split (default excludes rejected)
+python scripts/06_split_dataset.py \
+  --manifest runs/Benchmark_Run_002/manifests/images.csv \
+  --labels-dir runs/Benchmark_Run_002/data/labels_autogen \
+  --labels-final-dir runs/Benchmark_Run_002/data/labels_final \
+  --out-dir runs/Benchmark_Run_002/data/splits
+
+# Train with rejection safety checks (default)
+python scripts/07_train_yolo.py \
+  --data runs/Benchmark_Run_002/data/splits/data.yaml \
+  --manifest runs/Benchmark_Run_002/manifests/images.csv
+```
+
+### Batch Run Manager (Sequential Split + Train)
+
+Use `scripts/07b_batch_run_manager.py` to run multiple experiments back-to-back from one run directory. Each job can define its own split settings and train settings (model, epochs, imgsz, batch, device, and extra args).
+
+Quick start:
+
+```bash
+# 1) Copy and edit the example plan
+cp manifests/batch_run_plan.example.json manifests/batch_run_plan.json
+
+# 2) Run the batch manager
+python scripts/07b_batch_run_manager.py --config manifests/batch_run_plan.json
+```
+
+Notes:
+- Run names are timestamped automatically to prevent collisions.
+- Each job writes to its own split output folder under the configured `split_root`.
+- Train a smaller model by setting `"model_size": "n"` (or `"s"`, `"m"`, `"l"`, `"x"`) in a job, or set `"model"` directly to a custom checkpoint path.
+- Configure checkpoint cadence per job with `"save_period"` (default `10`).
+- The web UI now includes a **Batch Run Manager** page at `/batch-run-manager` for creating/saving plans and launching jobs.
+
 ## Pipeline Details
 
 | Step | Command | Description |
@@ -98,6 +155,7 @@ make eval
 | Labeler | `labeler/app.py` | Web UI for manual review |
 | Split | `06_split_dataset.py` | Group-aware train/val/test split |
 | Train | `07_train_yolo.py` | Train YOLO11s detector |
+| Batch Train | `07b_batch_run_manager.py` | Run multiple sequential split+train jobs |
 | Eval | `08_eval_report.py` | Evaluate and generate report |
 
 ## Synthetic Data Strategy
@@ -518,6 +576,11 @@ python scripts/04_synthesize_vehicle_edits.py --enforcement-rate 0.2 --seed 42
 
 # Training
 python scripts/07_train_yolo.py --epochs 50 --batch 16 --device cpu
+
+# Include rejected rows explicitly (override default safety policy)
+python scripts/05_prelabel_boxes.py --include-rejected
+python scripts/06_split_dataset.py --include-rejected
+python scripts/07_train_yolo.py --include-rejected --manifest manifests/images.csv
 ```
 
 ## Troubleshooting

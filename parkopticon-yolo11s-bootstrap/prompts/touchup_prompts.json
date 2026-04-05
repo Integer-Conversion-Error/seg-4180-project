@@ -3,8 +3,8 @@
     {
       "id": "fix_lighting",
       "name": "Fix Lighting",
-      "description": "Correct lighting, exposure, and color-temperature to match surroundings",
-      "prompt_text": "This image contains a synthetically inserted enforcement vehicle (parking enforcement, bylaw, or police cruiser). Your task: correct the lighting, exposure, and color-temperature on that enforcement vehicle so it matches the lighting conditions at its exact position in the scene. Critical: the vehicle may be sitting inside a cast shadow from a tree, building, or other object. If the road surface and surroundings immediately around the vehicle are dark or shaded, the vehicle must also appear dark and shaded to that same degree - do not brighten it to match the sunlit parts of the scene. Infer local illumination from the surroundings - road surface tone, nearby ground, immediate area - not from the brightest or most representative parts of the image. The background is ground truth and must not change. Only the vehicle's surface shading, exposure, and color temperature should be adjusted to be consistent with the local lighting where it sits.",
+      "description": "",
+      "prompt_text": "This image contains a synthetically inserted enforcement vehicle (parking enforcement, bylaw, or police cruiser). Your task: correct the lighting on that enforcement vehicle so it matches the lighting conditions in the scene. The vehicle may be sitting inside a cast shadow from a tree, building, or other object. Infer local illumination from the surroundings. Make sure shadows of the vehicle in question are not overlapping with each other and/or compounding their shading, and are pointing the correct way. Make sure shadows cast by the vehicle to the ground are the same shade as other shadows cast, relative to the unshaded colour of the ground surface (e.g. asphalt, gravel, etc.)",
       "is_default": true
     },
     {

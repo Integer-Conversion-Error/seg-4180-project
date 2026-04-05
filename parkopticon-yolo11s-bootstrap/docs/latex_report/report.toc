@@ -1,56 +1,48 @@
-\contentsline {section}{\numberline {1}Introduction}{3}{section.1}%
-\contentsline {subsection}{\numberline {1.1}Motivation}{3}{subsection.1.1}%
-\contentsline {subsection}{\numberline {1.2}Objectives}{3}{subsection.1.2}%
-\contentsline {subsection}{\numberline {1.3}Scope}{3}{subsection.1.3}%
-\contentsline {section}{\numberline {2}Methodology}{3}{section.2}%
-\contentsline {subsection}{\numberline {2.1}System Architecture}{3}{subsection.2.1}%
-\contentsline {subsection}{\numberline {2.2}Tools and Technologies}{4}{subsection.2.2}%
-\contentsline {section}{\numberline {3}Data Collection}{4}{section.3}%
-\contentsline {subsection}{\numberline {3.1}Overview}{4}{subsection.3.1}%
-\contentsline {subsection}{\numberline {3.2}Location Sampling}{4}{subsection.3.2}%
-\contentsline {subsubsection}{\numberline {3.2.1}Points Manifest}{4}{subsubsection.3.2.1}%
-\contentsline {subsubsection}{\numberline {3.2.2}Geographic Coverage}{5}{subsubsection.3.2.2}%
-\contentsline {subsection}{\numberline {3.3}Image Retrieval}{5}{subsection.3.3}%
-\contentsline {subsubsection}{\numberline {3.3.1}API Integration}{5}{subsubsection.3.3.1}%
-\contentsline {subsubsection}{\numberline {3.3.2}Directory Structure}{5}{subsubsection.3.3.2}%
-\contentsline {subsubsection}{\numberline {3.3.3}Resume Capability}{5}{subsubsection.3.3.3}%
-\contentsline {subsubsection}{\numberline {3.3.4}Execution Results}{5}{subsubsection.3.3.4}%
-\contentsline {subsection}{\numberline {3.4}Data Quality Assurance}{6}{subsection.3.4}%
-\contentsline {subsubsection}{\numberline {3.4.1}Duplicate Detection}{6}{subsubsection.3.4.1}%
-\contentsline {paragraph}{Panorama-Level Verification}{6}{section*.4}%
-\contentsline {paragraph}{File-Level Verification}{6}{section*.5}%
-\contentsline {subsubsection}{\numberline {3.4.2}Resolution}{6}{subsubsection.3.4.2}%
-\contentsline {subsubsection}{\numberline {3.4.3}Final Dataset Statistics}{7}{subsubsection.3.4.3}%
-\contentsline {section}{\numberline {4}Image Preprocessing}{7}{section.4}%
-\contentsline {subsection}{\numberline {4.1}Motivation}{7}{subsection.4.1}%
-\contentsline {subsection}{\numberline {4.2}Implementation}{7}{subsection.4.2}%
-\contentsline {subsubsection}{\numberline {4.2.1}Algorithm}{7}{subsubsection.4.2.1}%
-\contentsline {subsubsection}{\numberline {4.2.2}Idempotency}{8}{subsubsection.4.2.2}%
-\contentsline {subsubsection}{\numberline {4.2.3}File Preservation}{8}{subsubsection.4.2.3}%
-\contentsline {subsection}{\numberline {4.3}Results}{8}{subsection.4.3}%
-\contentsline {section}{\numberline {5}Empty Frame Detection}{8}{section.5}%
-\contentsline {subsection}{\numberline {5.1}Overview}{8}{subsection.5.1}%
-\contentsline {subsection}{\numberline {5.2}Method}{9}{subsection.5.2}%
-\contentsline {subsection}{\numberline {5.3}Results}{9}{subsection.5.3}%
-\contentsline {section}{\numberline {6}Synthetic Data Generation}{9}{section.6}%
-\contentsline {subsection}{\numberline {6.1}Overview}{9}{subsection.6.1}%
-\contentsline {subsection}{\numberline {6.2}Method}{9}{subsection.6.2}%
-\contentsline {subsection}{\numberline {6.3}Console Output}{9}{subsection.6.3}%
-\contentsline {subsection}{\numberline {6.4}Output}{10}{subsection.6.4}%
-\contentsline {subsection}{\numberline {6.5}Next Steps}{10}{subsection.6.5}%
-\contentsline {section}{\numberline {7}Label Generation}{10}{section.7}%
-\contentsline {subsection}{\numberline {7.1}Automated Annotation}{10}{subsection.7.1}%
-\contentsline {subsection}{\numberline {7.2}Manual Review}{10}{subsection.7.2}%
-\contentsline {section}{\numberline {8}Dataset Preparation}{11}{section.8}%
-\contentsline {subsection}{\numberline {8.1}Train/Validation/Test Split}{11}{subsection.8.1}%
-\contentsline {section}{\numberline {9}Model Training}{11}{section.9}%
-\contentsline {subsection}{\numberline {9.1}Configuration}{11}{subsection.9.1}%
-\contentsline {subsection}{\numberline {9.2}Training Metrics}{11}{subsection.9.2}%
-\contentsline {section}{\numberline {10}Evaluation}{11}{section.10}%
-\contentsline {subsection}{\numberline {10.1}Metrics}{11}{subsection.10.1}%
-\contentsline {subsection}{\numberline {10.2}Per-Class Performance}{12}{subsection.10.2}%
-\contentsline {section}{\numberline {11}Discussion}{12}{section.11}%
-\contentsline {subsection}{\numberline {11.1}Challenges}{12}{subsection.11.1}%
-\contentsline {subsection}{\numberline {11.2}Lessons Learned}{12}{subsection.11.2}%
-\contentsline {subsection}{\numberline {11.3}Future Work}{12}{subsection.11.3}%
-\contentsline {section}{\numberline {12}Conclusion}{12}{section.12}%
+\contentsline {section}{\numberline {1}Introduction}{1}{section.1}%
+\contentsline {subsection}{\numberline {1.1}Motivation}{1}{subsection.1.1}%
+\contentsline {subsection}{\numberline {1.2}Project Context and Preprocessing}{1}{subsection.1.2}%
+\contentsline {section}{\numberline {2}Empty Frame Detection and Scene Gating}{1}{section.2}%
+\contentsline {subsection}{\numberline {2.1}Overview}{1}{subsection.2.1}%
+\contentsline {subsection}{\numberline {2.2}Method}{1}{subsection.2.2}%
+\contentsline {section}{\numberline {3}Synthetic Data Generation}{2}{section.3}%
+\contentsline {subsection}{\numberline {3.1}Overview}{2}{subsection.3.1}%
+\contentsline {subsection}{\numberline {3.2}Synthesis Statistics}{2}{subsection.3.2}%
+\contentsline {subsection}{\numberline {3.3}Cumulative API Costs and Lessons Learned}{2}{subsection.3.3}%
+\contentsline {subsection}{\numberline {3.4}Time and Labor Tradeoff Analysis}{2}{subsection.3.4}%
+\contentsline {subsubsection}{\numberline {3.4.1}Cost Profile}{2}{subsubsection.3.4.1}%
+\contentsline {subsubsection}{\numberline {3.4.2}Cost Misunderstanding Note}{3}{subsubsection.3.4.2}%
+\contentsline {subsubsection}{\numberline {3.4.3}Key Advantages of the Synthetic Approach}{3}{subsubsection.3.4.3}%
+\contentsline {subsubsection}{\numberline {3.4.4}Limitations and Mitigations}{3}{subsubsection.3.4.4}%
+\contentsline {subsection}{\numberline {3.5}Future Synthetic Data Pipelines}{3}{subsection.3.5}%
+\contentsline {subsubsection}{\numberline {3.5.1}PRISM 3.1 + Blender + Scene Imagery}{3}{subsubsection.3.5.1}%
+\contentsline {subsubsection}{\numberline {3.5.2}Automation $\to $ BeamNG.drive}{4}{subsubsection.3.5.2}%
+\contentsline {paragraph}{Step 1: Vehicle Design in Automation}{4}{subsubsection.3.5.2}%
+\contentsline {paragraph}{Step 2: Rendering in BeamNG.drive}{4}{figure.caption.3}%
+\contentsline {subsubsection}{\numberline {3.5.3}Comparison with the Gemini Approach}{5}{subsubsection.3.5.3}%
+\contentsline {section}{\numberline {4}Label Generation}{5}{section.4}%
+\contentsline {subsection}{\numberline {4.1}Automated Annotation}{5}{subsection.4.1}%
+\contentsline {section}{\numberline {5}Model Training}{6}{section.5}%
+\contentsline {subsection}{\numberline {5.1}Run Organization: Folded and Combined Approach}{6}{subsection.5.1}%
+\contentsline {subsection}{\numberline {5.2}Run-by-Run Progression}{6}{subsection.5.2}%
+\contentsline {paragraph}{Run 1: Baseline YOLO11s (first attempt, failed)}{6}{subsection.5.2}%
+\contentsline {paragraph}{Run 2: Baseline YOLO11s (second attempt, failed)}{6}{subsection.5.2}%
+\contentsline {paragraph}{Run 3: Baseline YOLO11s (successful)}{7}{subsection.5.2}%
+\contentsline {paragraph}{Run 4: Smaller YOLO11n configuration}{7}{subsection.5.2}%
+\contentsline {paragraph}{Run 5: Folded YOLO11n (decisive run)}{7}{subsection.5.2}%
+\contentsline {subsection}{\numberline {5.3}Training Runs Comparison}{7}{subsection.5.3}%
+\contentsline {subsection}{\numberline {5.4}Fold Statistics}{7}{subsection.5.4}%
+\contentsline {subsection}{\numberline {5.5}Training Configuration}{8}{subsection.5.5}%
+\contentsline {subsection}{\numberline {5.6}Why the Folded Run Improved So Dramatically}{8}{subsection.5.6}%
+\contentsline {section}{\numberline {6}Evaluation}{8}{section.6}%
+\contentsline {subsection}{\numberline {6.1}Metrics}{8}{subsection.6.1}%
+\contentsline {subsection}{\numberline {6.2}Per-Class Performance}{9}{subsection.6.2}%
+\contentsline {section}{\numberline {7}Results}{9}{section.7}%
+\contentsline {subsection}{\numberline {7.1}Final Training Artifacts}{9}{subsection.7.1}%
+\contentsline {section}{\numberline {8}Discussion}{10}{section.8}%
+\contentsline {subsection}{\numberline {8.1}Challenges}{10}{subsection.8.1}%
+\contentsline {subsection}{\numberline {8.2}Lessons Learned}{11}{subsection.8.2}%
+\contentsline {subsection}{\numberline {8.3}Future Work}{11}{subsection.8.3}%
+\contentsline {section}{\numberline {9}Conclusion}{11}{section.9}%
+\contentsline {section}{References}{11}{section.9}%
+\contentsline {section}{\numberline {A}Project Structure}{11}{appendix.A}%
+\contentsline {section}{\numberline {B}Commands Reference}{13}{appendix.B}%

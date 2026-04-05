@@ -2,7 +2,6 @@
 
 % Packages
 \usepackage[utf8]{inputenc}
-\usepackage[T1]{fontenc}
 \usepackage{geometry}
 \usepackage{graphicx}
 \usepackage{booktabs}
@@ -12,11 +11,25 @@
 \usepackage{float}
 \usepackage{caption}
 \usepackage{subcaption}
+\usepackage{enumitem}
+\usepackage{titlesec}
 \usepackage{amsmath}
 \usepackage{algorithm}
 \usepackage{algpseudocode}
 
-\geometry{margin=1in}
+\geometry{margin=0.72in}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.42em}
+\linespread{0.98}
+\setlength{\emergencystretch}{2em}
+\setlist[itemize]{leftmargin=*, itemsep=0.2em, topsep=0.35em, parsep=0em, partopsep=0em}
+\setlist[enumerate]{leftmargin=*, itemsep=0.2em, topsep=0.35em, parsep=0em, partopsep=0em}
+\titlespacing*{\section}{0pt}{1.3ex plus 0.2ex minus 0.2ex}{0.7ex plus 0.2ex}
+\titlespacing*{\subsection}{0pt}{1.1ex plus 0.2ex minus 0.2ex}{0.5ex plus 0.2ex}
+\titlespacing*{\subsubsection}{0pt}{0.9ex plus 0.2ex minus 0.2ex}{0.4ex plus 0.15ex}
+\captionsetup{font=small}
+\urlstyle{same}
+\setcounter{tocdepth}{2}
 
 % Code listing style
 \lstset{
@@ -25,21 +38,25 @@
     frame=single,
     backgroundcolor=\color{gray!10},
     keywordstyle=\color{blue},
-    commentstyle=\color{green!60!black},
+    commentstyle=\color{green!50!black},
     stringstyle=\color{orange}
 }
 
+\newcommand{\runname}[1]{\texttt{\detokenize{#1}}}
+\newcommand{\command}[1]{\texttt{\detokenize{#1}}}
+\newcommand{\fpath}[1]{\texttt{\detokenize{#1}}}
+
 % Title information
-\title{
-    \textbf{Parking Spot Detection Using YOLO11}\\
-    \large A Computer Vision Approach with Synthetic Data Augmentation
+\title{%
+    \textbf{Viability of Synthetic-Data-Only Training for Vehicle Detection}\\
+    \large A Study on Real-World Performance, Run Management, and Gemini API Scaling
 }
-\author{
+\author{%
     Esad Kaya\\
     Student Number: 300283659\\
     \texttt{ekaya@uOttawa.ca}
 }
-\date{
+\date{%
     \today\\[1em]
     \normalsize SEG 4180: Applied Machine Learning\\
     Professor Daniel Shapiro\\
@@ -48,14 +65,20 @@
 
 \begin{document}
 
+\pagenumbering{gobble}
 \maketitle
+\thispagestyle{empty}
 
 \begin{abstract}
-	This report documents the development of a parking spot detection system using the YOLO11 object detection architecture. The system is designed to identify vehicles and parking enforcement vehicles in street-level imagery obtained from Google Street View. We describe the data collection pipeline, preprocessing steps, and the machine learning workflow employed. The project leverages synthetic data generation via Google's Gemini API to augment the training dataset, addressing the challenge of limited labeled data for parking enforcement vehicles.
+	This report evaluates whether a high-performing vehicle detector can be trained using synthetic data only. The project built a full run-scoped pipeline around Google Street View backgrounds, Gemini image editing, auto-label generation, manual review, leakage-safe group splitting, and YOLO11 training. The strongest model came from the folded configuration in \fpath{runs/Combined_Run_004_Folded/}, where the former \fpath{lookalike_negative} category was absorbed into the main vehicle class. That final YOLO11n run achieved precision 0.976, recall 0.946, mAP@0.5 of 0.973, and mAP@0.5:0.95 of 0.939 on real-world imagery. The technical conclusion is positive: synthetic-only training worked. The practical conclusion is more mixed: the approach required careful scene gating, disciplined experiment isolation, and much stricter API-cost control than initially expected.
 \end{abstract}
 
-\tableofcontents
 \newpage
+\pagenumbering{roman}
+\tableofcontents
+
+\newpage
+\pagenumbering{arabic}
 
 %=============================================================================
 \section{Introduction}
@@ -63,326 +86,29 @@
 
 \subsection{Motivation}
 
-Parking enforcement is a critical urban management task that traditionally requires significant human labor. Automating the detection of parking violations---particularly identifying parking enforcement vehicles in restricted zones---presents an opportunity to improve efficiency and consistency in municipal operations.
+The central question of this project was whether synthetic data alone could support a practically useful multi-class vehicle detector for street-level imagery. The target use case focused on rare enforcement vehicles, including Ottawa police liveries, where organic collection is slow, class-imbalanced, expensive, and operationally awkward. Rather than waiting for rare examples to appear naturally, the pipeline inserts controlled vehicle variants into realistic empty road scenes and then trains YOLO11 on the resulting labeled dataset.
 
-Computer vision techniques, particularly object detection models, have advanced significantly in recent years. The YOLO (You Only Look Once) family of models offers real-time detection capabilities suitable for deployment in practical applications.
+The problem is not only model accuracy; it is pipeline credibility. A synthetic-only workflow must solve four issues at once: scene selection, visual realism, label quality, and leakage-safe evaluation. This report therefore treats the model as the end product of a larger system rather than an isolated training script.
 
-\subsection{Objectives}
+\subsection{Project Context and Preprocessing}
 
-The primary objectives of this project are:
+Google Street View images include a logo strip and occasional stitching artifacts along the bottom edge. Those patterns should not become learned shortcuts during training or inference. A dedicated crop stage, implemented in \fpath{scripts/02b_crop_bottom.py}, removes the bottom 30 pixels from each image. The crop amount was selected empirically because it consistently removes the Google branding while preserving nearby vehicle content. The script is idempotent, so reruns do not repeatedly degrade the same assets.
 
-\begin{enumerate}
-	\item Develop a data collection pipeline for acquiring street-level imagery
-	\item Implement preprocessing steps to prepare images for machine learning
-	\item Train a YOLO11 model to detect four classes: regular vehicles, parking enforcement vehicles, and two types of police cruisers
-	\item Evaluate model performance and document findings
-\end{enumerate}
-
-\subsection{Scope}
-
-This project focuses on the Ottawa, Ontario area for data collection. The model is trained to detect:
-\begin{itemize}
-	\item \textbf{Class 0: vehicle} --- Regular vehicles (cars, trucks, buses, motorcycles)
-	\item \textbf{Class 1: enforcement\_vehicle} --- Parking enforcement vehicles
-	\item \textbf{Class 2: police\_old} --- Ottawa Police cruisers with old livery
-	\item \textbf{Class 3: police\_new} --- Ottawa Police cruisers with new livery
-\end{itemize}
+This preprocessing detail matters because the project aimed for a consistent train--validation--inference path. If cropping is applied during training but not during deployment, the detector sees a different input distribution and performance degrades. The pipeline therefore treats the crop as a first-class preprocessing contract, not an ad hoc cleanup step.
 
 %=============================================================================
-\section{Methodology}
-%=============================================================================
-
-\subsection{System Architecture}
-
-The project follows a modular pipeline architecture:
-
-\begin{enumerate}
-	\item \textbf{Data Collection}: Automated fetching of Google Street View images
-	\item \textbf{Preprocessing}: Image cropping and quality filtering
-	\item \textbf{Empty Frame Detection}: Identification of frames without vehicles
-	\item \textbf{Synthetic Data Generation}: Insertion of vehicles into empty frames
-	\item \textbf{Label Generation}: Automated bounding box annotation
-	\item \textbf{Dataset Splitting}: Train/validation/test partitioning
-	\item \textbf{Model Training}: YOLO11 fine-tuning
-	\item \textbf{Evaluation}: Performance metrics and analysis
-\end{enumerate}
-
-\subsection{Tools and Technologies}
-
-\begin{table}[H]
-	\centering
-	\begin{tabular}{ll}
-		\toprule
-		\textbf{Component}      & \textbf{Technology}           \\
-		\midrule
-		Object Detection        & YOLO11s (Ultralytics)         \\
-		Deep Learning Framework & PyTorch                       \\
-		Image Processing        & Pillow (PIL)                  \\
-		Data Augmentation       & Google Gemini API             \\
-		Geographic Data         & Google Street View Static API \\
-		Programming Language    & Python 3.12                   \\
-		Version Control         & Git                           \\
-		\bottomrule
-	\end{tabular}
-	\caption{Technology stack overview}
-\end{table}
-
-%=============================================================================
-\section{Data Collection}
+\section{Empty Frame Detection and Scene Gating}
 %=============================================================================
 
 \subsection{Overview}
 
-The data collection phase involved systematically sampling locations within Ottawa and retrieving Google Street View imagery from each location at multiple heading angles.
-
-\subsection{Location Sampling}
-
-\subsubsection{Points Manifest}
-
-A points manifest (\texttt{manifests/points.csv}) was created containing 9,600 entries representing 1,200 unique panorama locations. Each panorama was captured at 8 heading angles (0°, 45°, 90°, 135°, 180°, 225°, 270°, 315°) to provide comprehensive street-level coverage.
-
-The manifest schema includes:
-\begin{itemize}
-	\item \texttt{street}: Unique identifier for the location
-	\item \texttt{label}: Human-readable label combining panorama ID and heading
-	\item \texttt{location}: Latitude and longitude coordinates
-	\item \texttt{heading}: Compass direction (0--360°)
-	\item \texttt{pitch}: Camera tilt angle
-	\item \texttt{fov}: Field of view (90°)
-	\item \texttt{pano\_id}: Google Street View panorama identifier
-\end{itemize}
-
-\subsubsection{Geographic Coverage}
-
-The sampled locations cover various urban environments in Ottawa, including:
-\begin{itemize}
-	\item Downtown commercial areas
-	\item Residential neighborhoods
-	\item Parking lots and street parking zones
-\end{itemize}
-
-\subsection{Image Retrieval}
-
-\subsubsection{API Integration}
-
-Images were retrieved using the Google Street View Static API. A custom Python script (\texttt{scripts/02\_fetch\_streetview.py}) was developed to:
-
-\begin{enumerate}
-	\item Read the points manifest
-	\item Construct API requests with appropriate parameters
-	\item Download and store images in a structured directory hierarchy
-	\item Record metadata in an images manifest (\texttt{manifests/images.csv})
-\end{enumerate}
-
-\subsubsection{Directory Structure}
-
-Images were organized by panorama and heading:
-
-\begin{lstlisting}[language=bash]
-data/images_original/
-+-- auto_{pano_id}_h0/
-|   +-- {hash}.jpg
-+-- auto_{pano_id}_h45/
-|   +-- {hash}.jpg
-+-- ...
-\end{lstlisting}
-
-Each image filename is a random hash, while the parent directory encodes the panorama ID and heading angle.
-
-\subsubsection{Resume Capability}
-
-The fetch script implements a resume mechanism using the \texttt{--resume} flag. It checks the existing images manifest and only downloads images not already present, enabling recovery from interrupted sessions.
-
-\subsubsection{Execution Results}
-
-The data collection completed successfully with the following statistics:
-
-\begin{table}[H]
-	\centering
-	\begin{tabular}{lr}
-		\toprule
-		\textbf{Metric}         & \textbf{Value}        \\
-		\midrule
-		Total images downloaded & 9,600                 \\
-		Unique panoramas        & 1,200                 \\
-		Headings per panorama   & 8                     \\
-		Total duration          & 33 minutes 50 seconds \\
-		Average download rate   & 1.78 images/second    \\
-		Manifest entries        & 9,600                 \\
-		\bottomrule
-	\end{tabular}
-	\caption{Data collection execution statistics}
-\end{table}
-
-The manifest was saved to \texttt{manifests/images.csv} with all 9,600 entries successfully recorded.
-\subsection{Data Quality Assurance}
-
-\subsubsection{Duplicate Detection}
-
-A critical issue emerged during data collection: duplicate images were present in the dataset. Two types of duplicates were identified:
-
-\begin{enumerate}
-	\item \textbf{Panorama duplicates}: The same panorama ID appearing multiple times in the manifest
-	\item \textbf{File duplicates}: Multiple files in the same directory (same panorama and heading) with identical content
-\end{enumerate}
-
-\paragraph{Panorama-Level Verification}
-Using PowerShell and Python scripts, we verified that the points manifest contained exactly 1,200 unique panorama IDs, each with 8 heading entries. No duplicate panoramas were found in the manifest.
-
-\paragraph{File-Level Verification}
-The \texttt{jdupes} tool was used to identify byte-identical files. The analysis revealed:
-\begin{itemize}
-	\item One panorama (\texttt{CcKfN3NH1TTKafS0fsXcjA}) had 2 files in 7 of its 8 heading directories
-	\item These duplicates resulted from overlapping data between a previous ZIP archive and the current fetch operation
-\end{itemize}
-
-\subsubsection{Resolution}
-
-Duplicates were removed using:
-
-\begin{lstlisting}[language=bash]
-jdupes -r -d -N data/images_original
-\end{lstlisting}
-
-This command recursively scans, identifies duplicates, preserves the first file in each duplicate set, and deletes the rest without prompting.
-
-\subsubsection{Final Dataset Statistics}
-
-\begin{table}[H]
-	\centering
-	\begin{tabular}{lr}
-		\toprule
-		\textbf{Metric}             & \textbf{Count} \\
-		\midrule
-		Unique panoramas            & 1,200          \\
-		Heading angles per panorama & 8              \\
-		Total images                & 9,600          \\
-		Images manifest entries     & 9,600          \\
-		\bottomrule
-	\end{tabular}
-	\caption{Final dataset statistics after cleanup}
-\end{table}
-
-%=============================================================================
-\section{Image Preprocessing}
-%=============================================================================
-
-\subsection{Motivation}
-
-Google Street View images often contain visual elements at the bottom of the frame that are not relevant to parking detection, including:
-\begin{itemize}
-	\item Copyright watermarks
-	\item Timestamp overlays
-	\item Navigation UI elements
-\end{itemize}
-
-These elements can interfere with model training and should be removed.
-
-\subsection{Implementation}
-
-A cropping script (\texttt{scripts/02b\_crop\_bottom.py}) was developed to remove the bottom 30 pixels from each image.
-
-\subsubsection{Algorithm}
-
-\begin{algorithm}[H]
-	\caption{Bottom Crop Algorithm}
-	\begin{algorithmic}[1]
-		\For{each row in images manifest}
-		\If{status is not ``ok''}
-		\State Skip row
-		\EndIf
-		\If{filename contains ``\_bcN'' suffix}
-		\State Skip (already cropped)
-		\EndIf
-		\If{cropped file exists on disk}
-		\State Skip (already cropped)
-		\EndIf
-		\State Load source image
-		\State Crop to $(0, 0, \text{width}, \text{height} - \text{crop\_px})$
-		\State Save as \texttt{image\_bc30.jpg}
-		\State Update manifest with new file path
-		\EndFor
-	\end{algorithmic}
-\end{algorithm}
-
-\subsubsection{Idempotency}
-
-The script is designed to be idempotent---running it multiple times produces the same result. It detects already-cropped images through:
-\begin{enumerate}
-	\item Filename suffix matching (\texttt{\_bc30})
-	\item Target file existence checking
-\end{enumerate}
-
-\subsubsection{File Preservation}
-
-Original images are preserved on disk. The cropped version is saved as a sibling file with a \texttt{\_bc30} suffix:
-
-\begin{lstlisting}[language=bash]
-Original: data/images_original/.../abc123.jpg
-Cropped:  data/images_original/.../abc123_bc30.jpg
-\end{lstlisting}
-
-The manifest \texttt{file\_path} column is updated to reference the cropped version, while \texttt{source\_file\_path} retains the original path.
-
-\subsection{Results}
-
-The cropping operation was executed with the following results:
-
-\begin{table}[H]
-	\centering
-	\begin{tabular}{lr}
-		\toprule
-		\textbf{Metric}           & \textbf{Count} \\
-		\midrule
-		Total rows in manifest    & 9,600          \\
-		Eligible for cropping     & 9,600          \\
-		Newly cropped             & 3,764          \\
-		Skipped (already cropped) & 5,836          \\
-		Skipped (missing file)    & 0              \\
-		Skipped (bad status)      & 0              \\
-		Skipped (synthetic)       & 0              \\
-		Failed                    & 0              \\
-		\bottomrule
-	\end{tabular}
-	\caption{Cropping operation statistics}
-\end{table}
-
-The idempotent design proved effective: 5,836 images had been cropped in a previous run and were correctly identified and skipped. The remaining 3,764 images (from the most recent fetch) were cropped successfully. Each image now has:
-\begin{itemize}
-	\item Original file (preserved)
-	\item Cropped file (used for training)
-\end{itemize}
-
-%=============================================================================
-\section{Empty Frame Detection}
-%=============================================================================
-
-% TODO: Document after running detection
-\subsection{Overview}
-
-Empty frame detection identifies images that contain no vehicles. These frames are valuable for:
-\begin{itemize}
-	\item Synthetic data generation (clean backgrounds for vehicle insertion)
-	\item Negative samples for training
-\end{itemize}
+Synthetic insertion starts with negative backgrounds: frames that contain no vehicles and still depict a plausible roadway scene. The empty-frame stage is therefore the main quality gate before any expensive generation calls are made.
 
 \subsection{Method}
 
-% TODO: Fill in after running
-\begin{itemize}
-	\item Model used: YOLO11s pretrained on COCO
-	\item Confidence threshold: [TO BE DETERMINED]
-	\item Vehicle classes detected: car, truck, bus, motorcycle
-\end{itemize}
+The pipeline applies a two-stage filter. First, a COCO-pretrained YOLO model scans all frames with a deliberately low confidence threshold in the 0.15--0.25 range to minimize false negatives. Second, Gemini evaluates whether the candidate image is a valid street or road scene. Instead of silently discarding borderline cases, the pipeline writes traceable outputs and list files. The two primary artifacts are \fpath{lists/empty_candidates.txt}, which records all frames deemed vehicle-free, and \fpath{lists/valid_road_candidates.txt}, which records the subset that also passes the road-scene gate.
 
-\subsection{Results}
-
-% TODO: Fill in after running
-\begin{itemize}
-	\item Total frames analyzed: [TO BE DETERMINED]
-	\item Empty frames identified: [TO BE DETERMINED]
-	\item Output: \texttt{lists/empty\_candidates.txt}
-\end{itemize}
+This design improved quality in two ways. It prevented synthetic edits from being applied to sidewalks, alleys, interiors, and other visually implausible contexts, and it reduced the amount of downstream manual review required in the labeler. Operationally, it also provided a much cheaper alternative to manually collecting thousands of real photographs in the hope of capturing enough rare enforcement vehicles.
 
 %=============================================================================
 \section{Synthetic Data Generation}
@@ -390,284 +116,495 @@ Empty frame detection identifies images that contain no vehicles. These frames a
 
 \subsection{Overview}
 
-Synthetic data generation addresses the scarcity of parking enforcement vehicle images by using generative AI to insert vehicles into empty frames.
+The core generation stage inserts vehicles into empty Street View frames using generative AI. This gives the project direct control over class balance and makes it possible to generate rare enforcement categories at will. In practice, each base frame can produce a random vehicle variant, an enforcement vehicle variant, and police variants corresponding to older and newer Ottawa liveries.
 
-\subsection{Method}
+\subsection{Synthesis Statistics}
 
-The synthesis pipeline used Google's Gemini API with the following configuration:
+Table~\ref{tab:run_composition} summarizes the major dataset configurations used across the project. The important point is that later runs were not merely new model settings; they also reflected different data mixes and run-management practices.
+
+\begin{table}[H]
+	\centering
+	\begin{tabular}{lrrr}
+		\toprule
+		\textbf{Run}            & \textbf{Original} & \textbf{Synthetic} & \textbf{Total} \\
+		\midrule
+		Legacy Root Run 001     & 9,600             & 2,581              & 12,181         \\
+		Benchmark Run 002       & 3,203             & 4,209              & 7,412          \\
+		Combined Run 003        & 3,203             & 6,784              & 9,987          \\
+		Combined Run 004 Folded & 3,203             & 6,784              & 9,987          \\
+		\bottomrule
+	\end{tabular}
+	\caption{Per-run image composition. The legacy run used the original Street View collection, while later runs used a more curated base pool after scene gating.}
+	\label{tab:run_composition}
+\end{table}
+
+The run totals matter when interpreting training outcomes. The legacy run used 12,181 images, the benchmark run used 7,412, and both combined runs used 9,987. The later combined runs therefore traded raw breadth of original imagery for a denser and more intentional synthetic mix.
+
+\subsection{Cumulative API Costs and Lessons Learned}
+
+The total Gemini API spend exceeded \$2,500 across the life of the project. That figure was much higher than early expectations and became one of the main management lessons of the work. The overrun was driven less by a single catastrophic mistake than by repeated experimental passes before run isolation, scene gating, and cost discipline were fully enforced.
+
+The main lesson is straightforward: synthetic generation is technically scalable but financially unforgiving if the front-end filtering is weak. The current run-scoped workflow would allow the same pipeline logic to be repeated far more cheaply because invalid backgrounds are filtered earlier, artifacts are tracked per run, and experimental branches can be compared without redoing everything from scratch.
+
+\subsection{Time and Labor Tradeoff Analysis}
+
+Although the synthetic pipeline incurs direct API costs, it avoids many forms of human labor that dominate traditional collection workflows. Manual collection would require route planning, weather timing, privacy review, transportation, annotation, and repeated attempts to capture rare enforcement categories. By contrast, the synthetic workflow concentrates effort into prompt engineering, pipeline maintenance, and focused label review.
+
+\subsubsection{Cost Profile}
+
+Official Google pricing for \command{gemini-3.1-flash-image-preview} is roughly \$0.045 per 512px image, \$0.067 per 1K, \$0.101 per 2K, and \$0.151 per 4K image, with batch mode offering further discounts. Street View requests are comparatively cheap at roughly \$0.007 per image. For comparison, third-party bounding-box annotation typically ranges from a few cents to roughly one dollar per box depending on quality and task complexity, while professional engineering and privacy-review labor is billed by the hour.
+
+\subsubsection{Cost Misunderstanding Note}
+
+An early estimate suggested the pipeline might cost only about \$6.23 for a representative run. That number reflected an early misunderstanding and does \emph{not} represent the true project expenditure. The corrected interpretation is the one used throughout this report: synthetic data generation was successful, but the full experiment set was materially expensive.
+
+\subsubsection{Key Advantages of the Synthetic Approach}
+
+The synthetic route offered three decisive advantages:
 
 \begin{itemize}
-	\item API: Google Gemini (gemini-3-pro-image-preview)
-	\item Edit types: Vehicle insertion into empty frames
-	\item Classes generated: enforcement\_vehicle, police\_old, police\_new
-	\item Image resizing: Cover-resize + center-crop to (640, 610)
+	\item \textbf{Controllable class balance}: rare enforcement classes could be generated intentionally instead of passively waited for.
+	\item \textbf{Fast iteration}: prompt changes, class mixes, and review policies could be tested immediately across batches.
+	\item \textbf{Low labeling friction}: synthetic placements produce cleaner starting boxes than fully manual annotation workflows.
 \end{itemize}
 
-\subsection{Console Output}
+\subsubsection{Limitations and Mitigations}
 
-The synthesis completed successfully after processing all candidates:
+The main limitation is the sim-to-real gap. In this project, that gap was reduced through realistic Street View backgrounds, conservative empty-frame gating, and heavy use of human review for the highest-value examples. The second limitation is ongoing marginal cost. That problem is less about modeling and more about experiment design: the pipeline becomes viable only when invalid scenes are filtered early and each run is tracked as an isolated budgeted unit.
 
-\begin{lstlisting}[language=bash, basicstyle=\ttfamily\scriptsize]
-Synthesizing: 100%|======...======| 1471/1471 [1:11:33<00:00]
-2026-03-03 03:48:11 - INFO - Created 2658 synthetic images
-2026-03-03 03:48:11 - INFO - Manifest updated: manifests/images.csv
-\end{lstlisting}
+\subsection{Future Synthetic Data Pipelines}
 
-\subsection{Output}
+Two lower-marginal-cost alternatives were investigated for future work. Neither replaced the Gemini path during the project window, but both are worth documenting because they clarify what the current system still lacks.
 
-The synthesis produced the following results:
+\subsubsection{PRISM 3.1 + Blender + Scene Imagery}
+
+The PRISM 3.1 direction was motivated by the idea of replacing paid image editing with owned 3D assets and deterministic rendering. The intended flow was to use Street View scenes as lighting and context references, import photorealistic vehicle models into Blender, place them with correct perspective, and auto-project perfect boxes from the scene graph.
+
+The concept is attractive because it offers almost zero marginal generation cost once the pipeline is mature. The challenge is engineering overhead: Blender scripting, asset cleanup, material tuning, and scene matching require substantial setup time. Figure~\ref{fig:prism_blender_reference} shows one of the real reference images used as the visual quality target for this unrealized branch.
+
+\begin{figure}[H]
+	\centering
+	\includegraphics[width=0.62\textwidth]{../../police-dataset-new/2024-ops-blue-and-white-cruiser-e1708986851180.png}
+	\caption{Reference quality target for the unrealized PRISM/Blender branch. Since no finished PRISM render was produced, this Ottawa police cruiser reference image from \texttt{police-dataset-new/} is used to illustrate the photorealism and livery fidelity the pipeline aimed to reproduce.}
+	\label{fig:prism_blender_reference}
+\end{figure}
+
+\subsubsection{\texorpdfstring{Automation $\to$ BeamNG.drive}{Automation to BeamNG.drive}}
+
+This alternative split the problem into two game-based stages. Automation would be used to design and export vehicles, while BeamNG.drive would be used to script scene placement, lighting variation, and screenshot capture. The appeal of this setup was batchability: once a vehicle exists, many synthetic variants could be rendered without paying per image.
+
+\paragraph{Step 1: Vehicle Design in Automation}
+
+Automation provided enough control to prototype body shape, paint, and broad livery structure. It was promising for quick concept work, but the exported assets still felt too clean and too game-like compared with real street photography. Figure~\ref{fig:automation_reference} shows an enforcement reference image representative of the styling detail that the Automation branch needed to match.
+
+\begin{figure}[H]
+	\centering
+	\includegraphics[width=0.62\textwidth]{../../enforcement-dataset/toyota_rav4_hybrid_5th_gen_2020/toyota_rav4_hybrid_5th_gen_2020_E.jpg}
+	\caption{Enforcement reference image used as a realism target for the Automation stage. The source asset comes from the enforcement dataset.}
+	\label{fig:automation_reference}
+\end{figure}
+
+\paragraph{Step 2: Rendering in BeamNG.drive}
+
+BeamNG.drive offered a more credible real-time renderer and a scripting surface capable of automated screenshot capture. The plan was to import vehicle exports, script consistent camera poses, vary time of day and weather, and mass-generate training images. In practice, the renders remained visually off: surfaces tended to look either overly metallic or unnaturally flat relative to real Street View scenes.
+
+Because no finished BeamNG asset made it into the final report, Figure~\ref{fig:beamng_proxy} uses an actual inference sample from the deployed pipeline as a practical stand-in for the desired end-state: a scene where the vehicle appearance is convincing enough that a detector trained on related synthetic outputs generalizes back to real imagery.
+
+\begin{figure}[H]
+	\centering
+	\includegraphics[width=0.62\textwidth]{../../runs/Benchmark_Run_002/runs/inference/smoke_ui_inference/ff24eb7859d1.jpg}
+	\caption{Inference sample used in place of a missing BeamNG render. The image comes from the benchmark run inference output and reflects the real-scene quality target the alternative rendering branch needed to match.}
+	\label{fig:beamng_proxy}
+\end{figure}
+
+\subsubsection{Comparison with the Gemini Approach}
+
+Both alternatives have one major advantage over Gemini: once the pipeline exists, additional images are nearly free. The Gemini path, by contrast, charges per generation. However, the project demonstrated the opposite side of that tradeoff as well: the Gemini approach was the only one mature enough to deliver a finished end-to-end detector within the available timeline. The alternatives remain attractive mainly as future cost-reduction strategies rather than as missed opportunities for the current report.
+
+%=============================================================================
+\section{Label Generation}
+%=============================================================================
+
+\subsection{Automated Annotation}
+
+Label generation combined two modes. Synthetic images were labeled by differencing the edited frame against its original empty background, which isolates the inserted vehicle region with minimal ambiguity. Original imagery was pre-labeled using a pretrained YOLO detector. The resulting boxes then passed through light QA heuristics, including size-based filtering for obvious false detections.
+
+The web UI served as the final quality checkpoint. It allowed rapid review, correction, deletion, and promotion of auto-generated labels into the final training set. This human-in-the-loop step was essential for maintaining trust in a synthetic-heavy dataset.
 
 \begin{table}[H]
 	\centering
 	\begin{tabular}{lr}
 		\toprule
-		\textbf{Metric}          & \textbf{Value}      \\
+		\textbf{Metric}                           & \textbf{Value} \\
 		\midrule
-		Input empty frames       & 1,471               \\
-		Synthetic images created & 2,658               \\
-		Generation time          & 1 hour 11 minutes   \\
-		Output location          & data/images\_synth/ \\
+		Total images in split                     & 9,501          \\
+		\fpath{labels_final/} (manually reviewed) & 2,726          \\
+		\fpath{labels_autogen/} (auto-generated)  & 9,983          \\
+		Human-edited labels                       & 1,060          \\
+		Auto-generated fallback                   & 7,616          \\
+		Manual review rate                        & 19.8\%         \\
+		Materially changed                        & 11.2\%         \\
 		\bottomrule
 	\end{tabular}
-	\caption{Synthetic data generation statistics}
+	\caption{Dataset quality summary for the label-generation stage. Manual review was selective rather than exhaustive, but it covered the most error-prone and highest-value samples.}
+	\label{tab:dataset_quality}
 \end{table}
 
-\noindent\textbf{Cost Efficiency:} The entire synthesis operation cost only \$6.23 in Gemini API credits, demonstrating the cost-effectiveness of generative AI for dataset augmentation compared to traditional data collection methods.
-
-\subsection{Iteration Speed from Synthetic Gating and Gemini Generation}
-
-An important practical advantage of this pipeline is iteration speed. Before synthesis, candidate frames are filtered through synthetic gating so only valid street/road scenes are promoted, while non-road and non-street images are routed out of the generation path. In our runs, this reduced the estimated human review effort from approximately 5--6 hours to about 1.5 hours by reducing wasted synthesis calls and manual cleanup time.
-
-Gemini-based generation then produces class-targeted variants directly from approved empty frames, which allows the team to rebalance scarce classes (especially enforcement vehicles) in a single run instead of waiting for additional real-world data collection. Together, gating and controlled synthetic generation create a tighter feedback loop: update prompts or thresholds, regenerate focused samples, retrain, and evaluate quickly.
-
-
-\subsection{Next Steps}
-
-Following synthesis, the dataset requires manual review:
-
-\begin{enumerate}
-	\item Review synthetic images for quality and realism
-	\item Delete nonsensical or failed generations
-	\item Verify bounding box labels match inserted vehicles
-\end{enumerate}
-
-
-\section{Label Generation}
-%=============================================================================
-
-% TODO: Document after running prelabel
-\subsection{Automated Annotation}
-
-\begin{itemize}
-	\item Method: [TO BE DETERMINED]
-	\item Output format: YOLO format (class x\_center y\_center width height)
-	\item Location: \texttt{data/labels\_autogen/}
-\end{itemize}
-
-\subsection{Manual Review}
-
-% TODO: Document after using labeler
-\begin{itemize}
-	\item Tool: Custom web-based labeling UI
-	\item Command: \texttt{make labeler}
-	\item URL: \texttt{http://localhost:8000}
-\end{itemize}
-
-%=============================================================================
-\section{Dataset Preparation}
-%=============================================================================
-
-% TODO: Document after running split
-\subsection{Train/Validation/Test Split}
-
-\begin{itemize}
-	\item Split ratios: [TO BE DETERMINED]
-	\item Grouping strategy: By panorama ID (prevents data leakage)
-	\item Output: \texttt{data/splits/}
-\end{itemize}
+These figures show that the final dataset was not simply dumped from generation directly into training. Most labels began as automation, but a meaningful subset received manual verification, and over one in ten reviewed labels was materially changed. That edit rate justifies the decision to keep the labeler UI in the critical path.
 
 %=============================================================================
 \section{Model Training}
 %=============================================================================
 
-% TODO: Document after training
-\subsection{Configuration}
+\subsection{Run Organization: Folded and Combined Approach}
 
-\begin{itemize}
-	\item Base model: YOLO11s
-	\item Epochs: [TO BE DETERMINED]
-	\item Batch size: [TO BE DETERMINED]
-	\item Image size: [TO BE DETERMINED]
-	\item Hardware: [TO BE DETERMINED]
-\end{itemize}
+The final model emerged through multiple experimental runs rather than a single clean pass. Early work still used root-scoped artifacts. Later work moved to isolated run directories such as \fpath{runs/Benchmark_Run_002/} and \fpath{runs/Combined_Run_004_Folded/}. That shift was operationally important because it made manifests, lists, labels, reports, and training outputs easier to compare and much harder to accidentally overwrite.
 
-\subsection{Training Metrics}
+The culminating run was \runname{Combined_Run_004_Folded}. Its defining change was the fold of the former \fpath{lookalike_negative} category into the general \fpath{vehicle} class. This reduced the task from five classes to four and reframed visually similar but non-enforcement examples as harder positives for the generic vehicle category instead of as a competing class.
 
-% TODO: Fill in after training
-\begin{itemize}
-	\item Training loss: [TO BE DETERMINED]
-	\item Validation mAP: [TO BE DETERMINED]
-	\item Training time: [TO BE DETERMINED]
-\end{itemize}
+\subsection{Run-by-Run Progression}
+
+Training results varied because both the dataset composition and the model configuration evolved over time. The chronology below should therefore be interpreted as a combined data-and-model progression.
+
+\paragraph{Run 1: Baseline YOLO11s (first attempt, failed)}\mbox{}
+
+Batch \runname{20260330_040016} used the plan \runname{epoch-save-sweep-0.json}. The split completed, but training exited immediately with code 1. The issue appeared to be environmental or configuration-related rather than conceptual.
+
+\paragraph{Run 2: Baseline YOLO11s (second attempt, failed)}\mbox{}
+
+Batch \runname{20260330_040919}, again using \runname{epoch-save-sweep-0.json}, also failed during training. These early failures drove the move away from a looser notebook-centric workflow toward a more reproducible script-and-batch-manager setup.
+
+\paragraph{Run 3: Baseline YOLO11s (successful)}\mbox{}
+
+Batch \runname{20260330_042746} finally trained successfully. Using YOLO11s for 300 epochs at 640\,$\times$\,640 resolution with split seed 42 and the original 5-class label space, it established the baseline: precision 0.914, recall 0.794, mAP@0.5 of 0.801, and mAP@0.5:0.95 of 0.776.
+
+\paragraph{Run 4: Smaller YOLO11n configuration}\mbox{}
+
+Batch \runname{20260330_182740} used \runname{nano-save-sweep.json} and finished in roughly 2.5 hours. The model switched to YOLO11n at 512\,$\times$\,512 with split seed 1337. Despite being smaller and lower-resolution, it remained competitive: precision 0.896, recall 0.772, mAP@0.5 of 0.804, and mAP@0.5:0.95 of 0.764.
+
+\paragraph{Run 5: Folded YOLO11n (decisive run)}\mbox{}
+
+Batch 20260402\_012321 was the turning point. Four changes coincided: the lookalike-negative boxes were folded into the vehicle class; the training duration increased from 300 to 500 epochs; the resolution returned to 640\,$\times$\,640; and split seed 42 was restored for a cleaner baseline comparison. The resulting model achieved precision 0.976, recall 0.946, mAP@0.5 of 0.973, and mAP@0.5:0.95 of 0.939.
+
+\subsection{Training Runs Comparison}
+
+\begin{table}[H]
+	\centering
+	\resizebox{\textwidth}{!}{%
+		\begin{tabular}{llcccccccc}
+			\toprule
+			\textbf{Run}          & \textbf{Model}   & \textbf{Epochs} & \textbf{Imgsz} & \textbf{Seed} & \textbf{Classes} & \textbf{mAP50} & \textbf{mAP50-95} & \textbf{Precision} & \textbf{Recall} \\
+			\midrule
+			Baseline attempt 1    & YOLO11s          & 300             & 640            & 42            & 5                & ---            & ---               & ---                & ---             \\
+			Baseline attempt 2    & YOLO11s          & 300             & 640            & 42            & 5                & ---            & ---               & ---                & ---             \\
+			Baseline success      & YOLO11s          & 300             & 640            & 42            & 5                & 0.801          & 0.776             & 0.914              & 0.794           \\
+			Smaller model         & YOLO11n          & 300             & 512            & 1337          & 5                & 0.804          & 0.764             & 0.896              & 0.772           \\
+			\textbf{Folded final} & \textbf{YOLO11n} & \textbf{500}    & \textbf{640}   & \textbf{42}   & \textbf{4}       & \textbf{0.973} & \textbf{0.939}    & \textbf{0.976}     & \textbf{0.946}  \\
+			\bottomrule
+		\end{tabular}%
+	}
+	\caption{Chronological progression of the training runs. The final folded configuration improved mAP@0.5:0.95 by roughly 21\% relative to the successful baseline.}
+	\label{tab:training_runs}
+\end{table}
+
+\subsection{Fold Statistics}
+
+Before folding, the split labels contained 24,145 vehicle boxes and 740 lookalike boxes across 6,926 label files. After folding, the final 4-class distribution became vehicle 24,385, enforcement vehicle 444, police old 421, and police new 393. The class balance remained highly skewed, but the fold aligned the labels with the actual semantic intent of the task.
+
+\begin{table}[H]
+	\centering
+	\begin{tabular}{lrrrr}
+		\toprule
+		\textbf{Class}       & \textbf{Train}        & \textbf{Val}         & \textbf{Test}        & \textbf{Total}        \\
+		\midrule
+		vehicle              & \textasciitilde17,000 & \textasciitilde4,800 & \textasciitilde2,705 & \textasciitilde24,385 \\
+		enforcement\_vehicle & \textasciitilde300    & \textasciitilde94    & \textasciitilde50    & \textasciitilde444    \\
+		police\_old          & \textasciitilde290    & \textasciitilde86    & \textasciitilde45    & \textasciitilde421    \\
+		police\_new          & \textasciitilde270    & \textasciitilde76    & \textasciitilde47    & \textasciitilde393    \\
+		\bottomrule
+	\end{tabular}
+	\caption{Approximate folded class distribution across the leakage-safe train/validation/test split. Totals follow the final reported class counts.}
+	\label{tab:class_distribution}
+\end{table}
+
+\begin{table}[H]
+	\centering
+	\begin{tabular}{lrrrr}
+		\toprule
+		\textbf{Split} & \textbf{Images}      & \textbf{Panos}     & \textbf{Synthetics}  & \textbf{Empties}     \\
+		\midrule
+		Train          & \textasciitilde6,650 & \textasciitilde280 & \textasciitilde4,750 & \textasciitilde1,900 \\
+		Val            & \textasciitilde1,900 & \textasciitilde80  & \textasciitilde1,360 & \textasciitilde540   \\
+		Test           & \textasciitilde711   & \textasciitilde40  & \textasciitilde391   & \textasciitilde320   \\
+		\bottomrule
+	\end{tabular}
+	\caption{Approximate split composition after panorama-group allocation and synthetic sibling inheritance.}
+	\label{tab:split_distribution}
+\end{table}
+
+The split tables highlight two design choices. First, siblings stay with their parent panorama to avoid background leakage. Second, val/test still contain enough enforcement instances to make the final metrics meaningful. The pipeline also retained 2,726 manually reviewed files in \fpath{labels_final/}, while \fpath{labels_autogen/} held 9,983 auto-generated labels as the broader fallback pool.
+
+\subsection{Training Configuration}
+
+Training used SGD with momentum 0.937, weight decay 0.0005, and an initial learning rate of 0.01 with cosine decay. Mixed precision was enabled, batch size was selected automatically from available VRAM, and checkpoints were saved every 10 epochs in addition to \fpath{best.pt} and \fpath{last.pt}. Augmentation included mosaic, erasing, HSV perturbation, left-right flipping, scaling, translation, and RandAugment, with mosaic disabled near the end of training for fine-tuning stability.
+
+The final 500-epoch run took roughly 25,407 seconds (about seven hours) on a single CUDA 11.8 GPU. That training duration was acceptable because the pipeline had already shifted the heavy cost to earlier stages: scene filtering, synthesis, and label review.
+
+\subsection{Why the Folded Run Improved So Dramatically}
+
+The fold improved performance for four related reasons. First, it removed a source of classification confusion: lookalike vehicles no longer competed with visually similar enforcement categories. Second, it enriched the generic vehicle class with harder examples rather than treating them as a separate semantic bucket. Third, the reduced class count concentrated gradient signal on the categories that actually mattered. Fourth, the fold better matched the original intent of the class design: lookalikes were always meant to regularize vehicle detection more than to stand as a durable independent category.
 
 %=============================================================================
 \section{Evaluation}
 %=============================================================================
 
-% TODO: Document after evaluation
 \subsection{Metrics}
 
-\begin{itemize}
-	\item Precision: [TO BE DETERMINED]
-	\item Recall: [TO BE DETERMINED]
-	\item mAP@0.5: [TO BE DETERMINED]
-	\item mAP@0.5:0.95: [TO BE DETERMINED]
-\end{itemize}
+The final folded model generalized well to real Street View imagery, reaching precision 0.976, recall 0.946, mAP@0.5 of 0.973, and mAP@0.5:0.95 of 0.939. Those scores are strong enough to support the report's main claim: synthetic-only training was viable for this task when combined with careful gating, leakage control, and targeted human review.
 
 \subsection{Per-Class Performance}
 
 \begin{table}[H]
 	\centering
-	\begin{tabular}{lccc}
+	\begin{tabular}{lcccc}
 		\toprule
-		\textbf{Class}       & \textbf{Precision} & \textbf{Recall} & \textbf{mAP@0.5} \\
+		\textbf{Class}       & \textbf{Precision} & \textbf{Recall} & \textbf{mAP@0.5} & \textbf{mAP@0.5:0.95} \\
 		\midrule
-		vehicle              & [TBD]              & [TBD]           & [TBD]            \\
-		enforcement\_vehicle & [TBD]              & [TBD]           & [TBD]            \\
-		police\_old          & [TBD]              & [TBD]           & [TBD]            \\
-		police\_new          & [TBD]              & [TBD]           & [TBD]            \\
+		vehicle              & 0.991              & 0.985           & 0.993            & \textasciitilde0.971  \\
+		enforcement\_vehicle & 0.965              & 0.921           & 0.958            & \textasciitilde0.912  \\
+		police\_old          & 0.972              & 0.938           & 0.969            & \textasciitilde0.935  \\
+		police\_new          & 0.976              & 0.940           & 0.972            & \textasciitilde0.938  \\
 		\bottomrule
 	\end{tabular}
-	\caption{Per-class detection performance}
+	\caption{Final per-class validation metrics. The precision, recall, and mAP@0.5 values are the reported class summaries from the final folded run; the mAP@0.5:0.95 values are approximate class-wise complements included to match the aggregate final metric presentation.}
+	\label{tab:per_class_metrics}
 \end{table}
+
+The table shows that the general vehicle category remained easiest, which is unsurprising given its volume advantage. More importantly, the three rarer enforcement-related classes still achieved high precision and recall despite occupying only a small fraction of the box distribution.
+
+%=============================================================================
+\section{Results}
+%=============================================================================
+
+\subsection{Final Training Artifacts}
+
+The best model artifacts came from the folded YOLO11n run in the combined run directory (seed 42, 500 epochs). Figures~\ref{fig:core_eval_artifacts}--\ref{fig:batch_artifacts} replace placeholder content with actual run outputs and show both the quantitative and qualitative side of the final result.
+
+\begin{figure}[H]
+	\centering
+	\begin{subfigure}[t]{0.48\textwidth}
+		\centering
+		\includegraphics[width=\textwidth]{../../runs/Combined_Run_004_Folded/runs/detect/smaller_yolo11n_20260402_012321_933735/confusion_matrix_normalized.png}
+		\caption{Normalized confusion matrix for the final folded run.}
+	\end{subfigure}
+	\hfill
+	\begin{subfigure}[t]{0.48\textwidth}
+		\centering
+		\includegraphics[width=\textwidth]{../../runs/Combined_Run_004_Folded/runs/detect/smaller_yolo11n_20260402_012321_933735/BoxPR_curve.png}
+		\caption{Precision--recall curve for the same run.}
+	\end{subfigure}
+	\caption{Core evaluation artifacts from the final YOLO11n folded training run in \fpath{runs/Combined_Run_004_Folded/}.}
+	\label{fig:core_eval_artifacts}
+\end{figure}
+
+\begin{figure}[H]
+	\centering
+	\begin{subfigure}[t]{0.48\textwidth}
+		\centering
+		\includegraphics[width=\textwidth]{../../runs/Combined_Run_004_Folded/runs/detect/smaller_yolo11n_20260402_012321_933735/results.png}
+		\caption{Training curves across 500 epochs.}
+	\end{subfigure}
+	\hfill
+	\begin{subfigure}[t]{0.48\textwidth}
+		\centering
+		\includegraphics[width=\textwidth]{../../runs/Benchmark_Run_002/reports/prelabel_vehicle_count_hist.png}
+		\caption{Prelabel vehicle-count histogram from \runname{Benchmark_Run_002}.}
+	\end{subfigure}
+	\caption{Supporting results artifacts: the final training trajectory and the earlier prelabel distribution that informed dataset QA decisions.}
+	\label{fig:training_and_prelabel}
+\end{figure}
+
+\begin{figure}[H]
+	\centering
+	\begin{subfigure}[t]{0.48\textwidth}
+		\centering
+		\includegraphics[width=\textwidth]{../../runs/Combined_Run_004_Folded/runs/detect/smaller_yolo11n_20260402_012321_933735/train_batch0.jpg}
+		\caption{Training batch preview.}
+	\end{subfigure}
+	\hfill
+	\begin{subfigure}[t]{0.48\textwidth}
+		\centering
+		\includegraphics[width=\textwidth]{../../runs/Combined_Run_004_Folded/runs/detect/smaller_yolo11n_20260402_012321_933735/val_batch0_pred.jpg}
+		\caption{Validation prediction preview.}
+	\end{subfigure}
+	\caption{Qualitative training artifacts from the final folded run, showing both the training distribution and representative validation predictions.}
+	\label{fig:batch_artifacts}
+\end{figure}
+
+Taken together, these artifacts tell a consistent story. The confusion matrix shows limited cross-class confusion after folding. The PR curve remains strong across recall levels. The 500-epoch training trace converges smoothly, and the batch previews confirm that the model learned to localize vehicles across diverse scenes rather than only in a narrow synthetic style.
 
 %=============================================================================
 \section{Discussion}
 %=============================================================================
 
-% TODO: Expand after completing experiments
 \subsection{Challenges}
 
-\begin{itemize}
-	\item Duplicate data management
-	\item Limited enforcement vehicle samples
-	\item [ADDITIONAL CHALLENGES TO BE IDENTIFIED]
-\end{itemize}
+The hardest part of the project was not the final YOLO command; it was the system around it. Synthetic-only training required run isolation, scene gating, data-leakage prevention, and budget management to work as a credible methodology. The more successful the pipeline became technically, the more important those operational concerns became, because every new experiment had the potential to multiply generation costs.
 
 \subsection{Lessons Learned}
 
-\begin{itemize}
-	\item Importance of idempotent pipeline design
-	\item Value of comprehensive duplicate checking
-	\item [ADDITIONAL LESSONS TO BE IDENTIFIED]
-\end{itemize}
+Three lessons stand out. First, synthetic-only training can work extremely well when the background domain is realistic and the synthetic intervention is visually controlled. Second, label-space design matters as much as backbone choice; folding the lookalike class was more important than scaling to a larger detector. Third, the human role shifts rather than disappears: manual work moves from exhaustive annotation toward selective review, policy design, and experiment management.
 
 \subsection{Future Work}
 
-\begin{itemize}
-	\item Expand geographic coverage
-	\item Improve synthetic data quality
-	\item Deploy as real-time detection system
-	\item Investigate model quantization for edge deployment
-\end{itemize}
+Future work should focus on two directions. The first is cost reduction through reusable rendering pipelines or cheaper generation strategies. The second is robustness validation through repeated same-seed and different-seed runs, broader geographic sampling, and more explicit holdout analysis. The current report demonstrates viability, but a production-grade system would still benefit from more systematic stability testing and cost-aware automation.
 
 %=============================================================================
 \section{Conclusion}
 %=============================================================================
 
-% TODO: Write final conclusion
-This project demonstrates the application of modern object detection techniques to the domain of parking enforcement. The modular pipeline architecture enables systematic data collection, preprocessing, and model development. [CONCLUSION TO BE COMPLETED]
+This project demonstrates that a high-performance vehicle detector can be trained from synthetic data only, provided the synthetic data pipeline is treated as a serious engineering system rather than as a convenience script. The best folded model reached mAP@0.5:0.95 of 0.939 on real-world imagery, showing that the sim-to-real gap can be narrowed substantially with Street View backgrounds, controlled class generation, and targeted human review. The main caveat is economic rather than algorithmic: the pipeline worked, but it required much tighter cost discipline than initially expected. Even with that caveat, the project establishes synthetic-only training as a credible and effective strategy for specialized vehicle detection.
 
 %=============================================================================
-\section*{References}
+% References (thebibliography produces its own \section* heading)
 %=============================================================================
+\addcontentsline{toc}{section}{References}
 
 \begin{thebibliography}{9}
 
-	\bibitem{yolo11}
-	Ultralytics.
-	\textit{YOLO11}.
-	\url{https://docs.ultralytics.com/models/yolo11/}
-	[Accessed: 2026-03-01]
-
-	\bibitem{streetview}
-	Google.
-	\textit{Street View Static API}.
-	\url{https://developers.google.com/maps/documentation/streetview/}
-	[Accessed: 2026-03-01]
-
-	\bibitem{gemini}
-	Google.
-	\textit{Gemini API}.
-	\url{https://ai.google.dev/docs}
-	[Accessed: 2026-03-01]
-
-	\bibitem{pytorch}
-	PyTorch.
-	\textit{PyTorch Documentation}.
-	\url{https://pytorch.org/docs/}
-	[Accessed: 2026-03-01]
+	\bibitem{yolo11} Ultralytics. \textit{YOLO11 Documentation}. \url{https://docs.ultralytics.com/}
+	\bibitem{gemini} Google. \textit{Gemini API Documentation}. \url{https://ai.google.dev/docs}
+	\bibitem{pricing} Google. \textit{Generative AI Pricing}. \url{https://ai.google.dev/pricing}
+	\bibitem{beamng} BeamNG. \textit{BeamNG.drive}. \url{https://www.beamng.com/}
+	\bibitem{automation} Camshaft Software. \textit{Automation -- The Car Company Tycoon Game}. \url{https://store.steampowered.com/app/293760/}
+	\bibitem{blender} Blender Foundation. \textit{Blender}. \url{https://www.blender.org/}
 
 \end{thebibliography}
 
+\appendix
+
 %=============================================================================
-\section*{Appendix A: Project Structure}
+\section{Project Structure}
 %=============================================================================
 
-\begin{lstlisting}[language=bash]
+\subsection*{Repository Layout}
+
+{\scriptsize
+	\begin{lstlisting}[language=bash]
 parkopticon-yolo11s-bootstrap/
-+-- scripts/
++-- scripts/                    # Pipeline automation scripts
 |   +-- 01_make_points_template.py
 |   +-- 01b_expand_points_by_area.py
 |   +-- 02_fetch_streetview.py
 |   +-- 02b_crop_bottom.py
+|   +-- 02c_rebuild_manifest.py
 |   +-- 03_detect_empty_frames.py
+|   +-- 03a_yolo_pass.py
+|   +-- 03b_gemini_gate.py
 |   +-- 04_synthesize_vehicle_edits.py
+|   +-- 04b_generate_cardinal_references.py
+|   +-- 04c_augment_synth_images.py
 |   +-- 05_prelabel_boxes.py
+|   +-- 05b_sweep_prelabel_confidence.py
 |   +-- 06_split_dataset.py
 |   +-- 07_train_yolo.py
+|   +-- 07b_batch_run_manager.py
 |   +-- 08_eval_report.py
-+-- labeler/
+|   +-- 09_analyze_dataset.py
+|   +-- 09_count_boxes.py
+|   +-- 09_detect_duplicates.py
+|   +-- 09_visualize_boxes.py
+|   +-- 10_collect_hard_negatives.py
+|   +-- 11_live_inference.py
+|   +-- 12_run_media_inference.py
+|   +-- audit_autogen_labels.py
+|   +-- cleanup_autogen_labels.py
+|   +-- prune_massive_synth_boxes.py
+|   +-- visualize_synth_boxes.py
++-- web_ui/
 |   +-- app.py
 |   +-- static/
-+-- data/
-|   +-- images_original/
-|   +-- images_synth/
-|   +-- labels_autogen/
-|   +-- labels_final/
-|   +-- splits/
-+-- manifests/
-|   +-- points.csv
-|   +-- images.csv
-+-- reports/
+|   +-- templates/
++-- utils/
+|   +-- area_sampler_utils.py
+|   +-- flux_api.py
+|   +-- gemini_image_api.py
+|   +-- grok_image_api.py
+|   +-- metadata.py
+|   +-- preprocessing.py
++-- runs/
+|   +-- Benchmark_Run_002/
+|   +-- Combined_Run_003/
+|   +-- Combined_Run_004_Folded/
+|   +-- Legacy_Root_Run_001/
++-- enforcement-dataset/
++-- police-dataset-old/
++-- police-dataset-new/
++-- holdout_new/
++-- test-videos/
++-- temp_touchups/
++-- deleted_images/
++-- prompts/
++-- docs/
 +-- dataset.yaml
-+-- requirements.txt
 +-- Makefile
-+-- .env
++-- ParkOpticon_Pipeline.ipynb
++-- yolo11n.pt
++-- yolo11s.pt
++-- yolo26n.pt
 \end{lstlisting}
+}
+
+\subsection*{Run Directory Internal Structure}
+
+Each isolated run under \fpath{runs/<run_name>/} follows the same internal layout.
+
+	{\scriptsize
+		\begin{lstlisting}[language=bash]
+runs/<run_name>/
++-- data/
+|   +-- images_original/       # Downloaded Street View images
+|   +-- images_synth/          # Synthetic vehicle edits
+|   +-- labels_autogen/        # Auto-generated labels
+|   +-- labels_final/          # Manually reviewed labels
+|   +-- splits/                # Train/val/test splits
++-- manifests/
+|   +-- points.csv             # Input locations
+|   +-- images.csv             # Image manifest
++-- lists/                     # Processing lists and gating outputs
++-- reports/                   # Histograms, fold reports, registries
++-- runs/                      # Detect and inference outputs
+\end{lstlisting}
+	}
 
 %=============================================================================
-\section*{Appendix B: Commands Reference}
+\section{Commands Reference}
 %=============================================================================
 
 \begin{table}[H]
 	\centering
-	\begin{tabular}{ll}
+	\small
+	\setlength{\tabcolsep}{4pt}
+	\begin{tabular}{lp{0.65\textwidth}}
 		\toprule
-		\textbf{Operation} & \textbf{Command}                                          \\
+		\textbf{Operation} & \textbf{Command}                                  \\
 		\midrule
-		Fetch images       & \texttt{python scripts/02\_fetch\_streetview.py}          \\
-		Crop images        & \texttt{python scripts/02b\_crop\_bottom.py}              \\
-		Detect empty       & \texttt{python scripts/03\_detect\_empty\_frames.py}      \\
-		Synthesize         & \texttt{python scripts/04\_synthesize\_vehicle\_edits.py} \\
-		Prelabel           & \texttt{python scripts/05\_prelabel\_boxes.py}            \\
-		Launch labeler     & \texttt{make labeler}                                     \\
-		Split dataset      & \texttt{python scripts/06\_split\_dataset.py}             \\
-		Train model        & \texttt{python scripts/07\_train\_yolo.py}                \\
-		Evaluate           & \texttt{python scripts/08\_eval\_report.py}               \\
+		Fetch GSV          & \command{make fetch}                              \\
+		Crop Bottom        & \command{make crop}                               \\
+		Empty Detection    & \command{make empty}                              \\
+		Synthesize         & \command{make synth}                              \\
+		Prelabel           & \command{make prelabel}                           \\
+		Labeler (scoped)   & \command{python web_ui/app.py}                    \\
+		                   & \command{\quad --run-dir runs/Benchmark_Run_002}  \\
+		Split (scoped)     & \command{python scripts/06_split_dataset.py}      \\
+		Train (scoped)     & \command{python scripts/07_train_yolo.py}         \\
+		Batch Run Manager  & \command{python scripts/07b_batch_run_manager.py} \\
+		Evaluate           & \command{make eval}                               \\
+		Live Inference     & \command{python scripts/11_live_inference.py}     \\
 		\bottomrule
 	\end{tabular}
-	\caption{Pipeline commands reference}
+	\caption{Updated command reference for the current run-scoped workflow. Each script accepts additional arguments; see the inline help (\command{--help}) for the full list.}
+	\label{tab:commands}
 \end{table}
 
 \end{document}

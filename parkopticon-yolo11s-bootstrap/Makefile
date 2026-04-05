@@ -1,4 +1,4 @@
-.PHONY: help fetch crop empty synth prelabel ui split train eval hard_negatives clean
+.PHONY: help fetch crop empty synth prelabel ui split train batch_train eval hard_negatives clean
 
 help:
 	@echo "ParkOpticon YOLO11s Bootstrap - Pipeline Commands"
@@ -11,6 +11,7 @@ help:
 	@echo "make ui         - Start unified Web UI"
 	@echo "make split      - Create train/val/test split"
 	@echo "make train      - Train YOLO11s detector"
+	@echo "make batch_train - Dry-run batch split+train plan"
 	@echo "make eval       - Evaluate on test set"
 	@echo "make hard_negatives  - Collect hard negative images (no vehicles)"
 	@echo "make clean      - Clean generated files"
@@ -38,6 +39,9 @@ split:
 
 train:
 	python scripts/07_train_yolo.py
+
+batch_train:
+	python scripts/07b_batch_run_manager.py --config manifests/batch_run_plan.example.json --dry-run
 
 eval:
 	python scripts/08_eval_report.py --weights runs/detect/parkopticon_vehicle_enforcement/weights/best.pt
