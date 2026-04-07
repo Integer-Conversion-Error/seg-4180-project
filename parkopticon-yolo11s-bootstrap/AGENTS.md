@@ -432,5 +432,28 @@ GSV_API_KEY=your_key_here
 GEMINI_API_KEY=your_key_here
 ```
 
+## LaTeX Report Compilation
+
+### Critical: Run pdflatex FROM the directory containing the images
+
+When compiling the LaTeX report (`docs/latex_report/report.tex`), you MUST run pdflatex from WITHIN the `latex_report` directory, not from the project root or any other location.
+
+**Why this matters:** LaTeX's `\includegraphics{}` uses relative paths. If you run pdflatex from the project root with `\includegraphics{baseline-enforcement.jpg}`, it looks for the image relative to the current working directory. If the working directory is not `latex_report`, the image path resolves incorrectly and the image fails to embed (shows as broken placeholder).
+
+**Correct way:**
+```powershell
+cd docs\latex_report
+pdflatex report.tex
+# Run twice to resolve references
+pdflatex report.tex
+```
+
+**Wrong way (will break images):**
+```powershell
+pdflatex docs\latex_report\report.tex  # Don't do this!
+```
+
+**Also note:** Images outside the latex_report folder (e.g., `../../runs/...`) will NOT work because they're outside the compilation context. Those images need to be manually copied into the latex_report folder before compilation.
+
 ---
-*Last Updated: April 5, 2026*
+*Last Updated: April 6, 2026*
