@@ -1,0 +1,120 @@
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.build/
+dist/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Logs
+*.log
+logs/
+
+# Data and generated content (too large or sensitive)
+data/
+manifests/
+lists/
+deleted_images/
+temp_touchups/
+runs/
+reports/
+
+# Model files (large binary files)
+*.pt
+*.onnx
+*.engine
+*.yaml
+
+# LaTeX build artifacts
+docs/latex_report/*.aux
+docs/latex_report/*.log
+docs/latex_report/*.out
+docs/latex_report/*.toc
+docs/latex_report/*.pdf
+docs/latex_report/*.bbl
+docs/latex_report/*.blg
+docs/latex_report/*.brf
+docs/latex_report/*.fdb_latexmk
+docs/latex_report/*.fls
+docs/latex_report/*.synctex.gz
+docs/latex_report/*.xdv
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.bak*
+*~
+#*
+.#*
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE and editor files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.komodoproject
+*.kwp
+*.swn
+*.suml
+*.nav
+*.idx
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Miscellaneous
+.nul
+=*
+server.err
+server.out
+
+# Specific files to ignore
+actual_dirs.txt
+duplicate_files.txt
+expected_labels.txt
+image_files.txt
+extra_dirs.txt
+indent.log
+manifests/images.csv
+manifests/boxes_autogen*.jsonl
+lists/empty_candidates.txt
+lists/excluded_from_synth.txt
+lists/bad_synthetics.txt
+lists/empty_test.txt
+parkopticon-yolo11s-bootstrap/data/images_hard_negatives/
+parkopticon-yolo11s-bootstrap/data/images_original/
+parkopticon-yolo11s-bootstrap/data/images_synth/
+parkopticon-yolo11s-bootstrap/data/labels_autogen/
+parkopticon-yolo11s-bootstrap/data/labels_final/
+parkopticon-yolo11s-bootstrap/data/splits/
+parkopticon-yolo11s-bootstrap/enforcement-dataset/
+parkopticon-yolo11s-bootstrap/police-dataset-old/
+parkopticon-yolo11s-bootstrap/police-dataset-new/
+test-videos/

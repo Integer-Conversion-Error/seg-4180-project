@@ -334,6 +334,28 @@ data/images_synth/
 - Delete nonsensical synthetic images
 - Save final labels to `data/labels_final/`
 
+**WebUI Usage & Run-Scoped Execution:**
+The webUI supports both project-root execution and run-scoped execution for isolated experiments. It provides an interactive interface for label review, batch job management, and pipeline step execution.
+
+**Basic Usage:**
+- Launch with `make labeler` (defaults to project root)
+- Access at http://localhost:8000
+- The UI automatically detects and loads the current run directory
+
+**Run-Scoped Execution (Recommended):**
+For isolated experiments, use the `--run-dir` flag:
+
+```bash
+# Launch webUI scoped to a specific run directory
+python web_ui/app.py --run-dir runs/Benchmark_Run_002
+```
+
+**API Endpoints for Directory Management:**
+The webUI provides API endpoints for dynamic run directory switching:
+- `GET /api/directories/list` - List available run directories under PROJECT_ROOT
+- `GET /api/directories/current` - Get current run directory path and name
+- `POST /api/directories/set` - Switch to a different run directory (JSON body: `{"path": "runs/Experiment_001"}`)
+
 #### Step 7: Split Dataset (`make split`)
 - Group-aware splitting by `pano_id`
 - Prevents data leakage (same location in train/test)

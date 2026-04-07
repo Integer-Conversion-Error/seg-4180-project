@@ -74,6 +74,38 @@ make prelabel
 make labeler
 # Open http://localhost:8000 in your browser
 
+## WebUI Usage
+
+The webUI provides an interactive interface for reviewing labels, managing runs, and executing pipeline steps. It supports both project-root execution and run-scoped execution for isolated experiments.
+
+### Basic Usage
+- Launch with `make labeler` (defaults to project root)
+- Access at http://localhost:8000
+- The UI automatically detects and loads the current run directory
+
+### Run-Scoped Execution (Recommended)
+For isolated experiments, use the `--run-dir` flag:
+
+```bash
+# Launch webUI scoped to a specific run directory
+python web_ui/app.py --run-dir runs/Benchmark_Run_002
+```
+
+The webUI includes API endpoints for dynamic directory switching:
+- `GET /api/directories/list` - List available run directories
+- `GET /api/directories/current` - Get current run directory
+- `POST /api/directories/set` - Switch to a different run directory
+
+### WebUI Pages
+- **Labeler** (`/labeler`) - Review and correct auto-generated labels
+- **Batch Run Manager** (`/batch-run-manager`) - Create/save plans and launch sequential split+train jobs
+- **Point Manager** (`/point-manager`) - Manage location points for Street View fetching
+- **Synthetic Generation** (`/synth-gen`) - Review and curate synthetic vehicle edits
+- **Synthetic Review** (`/synth-review-empty`, `/synth-review-buckets`) - Quality control for synthetic data
+- **Training Viewer** (`/training-viewer`) - Monitor training progress and metrics
+- **Inference Runner** (`/inference-runner`) - Run inference on images/videos
+- **Lookup Tools** (`/lookalike-tracker`, `/oversized-box-audit`) - Data quality utilities
+
 # Step 7: Create train/val/test split
 make split
 

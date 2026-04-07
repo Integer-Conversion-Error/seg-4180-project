@@ -343,6 +343,41 @@ Web UI for reviewing and correcting auto-generated labels.
 
 ---
 
+### WebUI Usage & Run-Scoped Execution
+
+The webUI supports both project-root execution and run-scoped execution for isolated experiments. It provides an interactive interface for label review, batch job management, and pipeline step execution.
+
+**Basic Usage:**
+- Launch with `make labeler` (defaults to project root)
+- Access at http://localhost:8000
+- The UI automatically detects and loads the current run directory
+
+**Run-Scoped Execution (Recommended):**
+For isolated experiments, use the `--run-dir` flag:
+
+```bash
+# Launch webUI scoped to a specific run directory
+python web_ui/app.py --run-dir runs/Benchmark_Run_002
+```
+
+**API Endpoints for Directory Management:**
+The webUI provides API endpoints for dynamic run directory switching:
+- `GET /api/directories/list` - List available run directories under PROJECT_ROOT
+- `GET /api/directories/current` - Get current run directory path and name
+- `POST /api/directories/set` - Switch to a different run directory (JSON body: `{"path": "runs/Experiment_001"}`)
+
+**WebUI Pages:**
+- **Labeler** (`/labeler`) - Review and correct auto-generated labels
+- **Batch Run Manager** (`/batch-run-manager`) - Create/save plans and launch sequential split+train jobs
+- **Point Manager** (`/point-manager`) - Manage location points for Street View fetching
+- **Synthetic Generation** (`/synth-gen`) - Review and curate synthetic vehicle edits
+- **Synthetic Review** (`/synth-review-empty`, `/synth-review-buckets`) - Quality control for synthetic data
+- **Training Viewer** (`/training-viewer`) - Monitor training progress and metrics
+- **Inference Runner** (`/inference-runner`) - Run inference on images/videos
+- **Lookup Tools** (`/lookalike-tracker`, `/oversized-box-audit`) - Data quality utilities
+
+---
+
 #### Step 7: Split Dataset
 **Script:** `scripts/06_split_dataset.py`
 **Command:** `make split`
