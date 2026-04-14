@@ -30,6 +30,7 @@ parkopticon-yolo11s-bootstrap/runs/
 parkopticon-yolo11s-bootstrap/reports/
 parkopticon-yolo11s-bootstrap/deleted_images/
 parkopticon-yolo11s-bootstrap/sisyphus/
+parkopticon-yolo11s-bootstrap/.sisyphus/
 
 parkopticon-yolo11s-bootstrap/*.pt
 parkopticon-yolo11s-bootstrap/*.onnx
