@@ -21,6 +21,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+from utils.dataset_exclusion import load_dataset_excluded_ids
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s  %(levelname)-8s  %(message)s",
@@ -164,6 +166,7 @@ def step1_register_synth_images(manifest_rows: list[dict], dry_run: bool) -> lis
 
     # Build set of existing image_ids
     existing_ids = {row["image_id"] for row in manifest_rows}
+    excluded_ids = load_dataset_excluded_ids(MANIFEST_PATH)
 
     # Build parent lookup: image_id -> row
     parent_lookup = {row["image_id"]: row for row in manifest_rows}
@@ -196,6 +199,8 @@ def step1_register_synth_images(manifest_rows: list[dict], dry_run: bool) -> lis
 
         for img_path in sorted(synth_dir.glob("*.jpg")):
             image_id = img_path.stem  # e.g. 0134411e07b7_enforcement_vehicle
+            if image_id in excluded_ids:
+                continue
             if image_id in existing_ids:
                 already_registered += 1
                 continue
@@ -500,8 +505,12 @@ def step6_merge_labels_final(dry_run: bool) -> int:
         log.warning(f"  labels_final directory not found: {LABELS_FINAL}")
         return 0
 
+    excluded_ids = load_dataset_excluded_ids(MANIFEST_PATH)
+
     merged = 0
     for final_path in sorted(LABELS_FINAL.glob("*.txt")):
+        if final_path.stem in excluded_ids:
+            continue
         content = final_path.read_text().strip()
         if not content:
             continue

@@ -168,18 +168,26 @@ async function loadImage(index) {
     currentIndex = index;
     currentImage = images[index];
     
-    const resp = await fetch(`/api/labeler/image/${currentImage.image_id}`);
+    const resp = await fetch(`/api/labeler/image/${currentImage.image_id}?include_excluded=${showExcluded ? 'true' : 'false'}`);
     const data = await resp.json();
     
     boxes = data.boxes || [];
     selectedBoxIndex = -1;
     setUnsavedChanges(false);
-    
+
+    const isExcluded = !!data.is_excluded;
+
     document.getElementById('imageId').textContent = data.image_id.substring(0, 12) + '...';
     document.getElementById('imageStatus').textContent = data.is_synthetic ? 'Synthetic' : 'Original';
-    document.getElementById('excludedStatus').textContent = data.is_excluded ? 'Yes' : 'No';
+    document.getElementById('excludedStatus').textContent = isExcluded ? 'Yes' : 'No';
     document.getElementById('syntheticInfo').style.display = data.is_synthetic ? 'block' : 'none';
     document.getElementById('markInsertedBtn').style.display = data.is_synthetic ? 'inline-block' : 'none';
+    document.getElementById('saveBtn').disabled = isExcluded;
+    document.getElementById('addBoxBtn').disabled = isExcluded;
+    document.getElementById('markInsertedBtn').disabled = isExcluded;
+    if (isExcluded) {
+        document.getElementById('hint').textContent = 'Excluded image (view-only)';
+    }
     
     if (!imgElement) {
         imgElement = new Image();
@@ -213,8 +221,12 @@ async function markCurrentImageReviewed() {
     if (!currentImage) {
         return;
     }
+    if (currentImage.is_excluded) {
+        return;
+    }
+    const includeExcluded = currentImage.is_excluded ? 'true' : 'false';
     if (currentImage.review_status !== 'done') {
-        const resp = await fetch(`/api/labeler/review/${currentImage.image_id}?status=done`, {
+        const resp = await fetch(`/api/labeler/review/${currentImage.image_id}?status=done&include_excluded=${includeExcluded}`, {
             method: 'POST'
         });
         if (!resp.ok) {
@@ -259,8 +271,12 @@ async function saveCurrentLabels(showMessage = true) {
     if (!currentImage) {
         return;
     }
+    if (currentImage.is_excluded) {
+        document.getElementById('hint').textContent = 'Excluded images are view-only';
+        return;
+    }
     const yoloBoxes = buildYoloBoxes();
-    const resp = await fetch(`/api/labeler/labels/${currentImage.image_id}`, {
+    const resp = await fetch(`/api/labeler/labels/${currentImage.image_id}?include_excluded=${currentImage.is_excluded ? 'true' : 'false'}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ boxes: yoloBoxes })
@@ -291,8 +307,8 @@ async function navigateTo(index) {
 
             if (index < currentIndex) {
                 const target = images[index];
-                if (target && target.review_status === 'done') {
-                    await fetch(`/api/labeler/review/${target.image_id}?status=todo`, { method: 'POST' });
+                if (target && target.review_status === 'done' && !target.is_excluded) {
+                    await fetch(`/api/labeler/review/${target.image_id}?status=todo&include_excluded=${target.is_excluded ? 'true' : 'false'}`, { method: 'POST' });
                     target.review_status = 'todo';
                 }
             }
@@ -639,13 +655,14 @@ async function jumpToImageId(rawId) {
         return;
     }
 
-    const resp = await fetch(`/api/labeler/image/${imageId}`);
+    const resp = await fetch(`/api/labeler/image/${imageId}?include_excluded=${showExcluded ? 'true' : 'false'}`);
     if (!resp.ok) {
         document.getElementById('hint').textContent = `Image not found: ${imageId}`;
         return;
     }
 
-    images.push({ image_id: imageId, review_status: 'todo' });
+    const data = await resp.json();
+    images.push({ image_id: imageId, review_status: data.review_status || 'todo', is_excluded: !!data.is_excluded });
     await navigateTo(images.length - 1);
     document.getElementById('hint').textContent = `Loaded image ${imageId} (outside current queue)`;
 }

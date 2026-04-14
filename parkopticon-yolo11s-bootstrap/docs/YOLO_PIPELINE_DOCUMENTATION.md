@@ -19,6 +19,7 @@ The ParkOpticon YOLO11s pipeline is a complete object detection training workflo
 - **100% Synthetic Data**: Uses Google Street View backgrounds + Gemini API for vehicle insertion
 - **4-Class Detection**: `vehicle`, `enforcement_vehicle`, `police_old`, `police_new`
 - **Group-Aware Splitting**: Prevents data leakage by splitting by panorama (`pano_id`)
+- **Dataset Exclusion**: `lists/excluded_from_synth.txt` is a soft, dataset-wide exclusion that also cascades to descendants via `parent_image_id`
 - **Automated Pipeline**: End-to-end workflow from data collection to model training
 
 ---
@@ -111,6 +112,7 @@ parkopticon-yolo11s-bootstrap/
   - `--manifest runs/<run_name>/manifests/images.csv`
   - `--out-dir runs/<run_name>/data/labels_autogen`
 - `web_ui/app.py` supports run scoping via `--run-dir` and directory switching endpoints (`/api/directories/current`, `/api/directories/set`).
+- Empty-review exclusions are soft exclusions: they keep files on disk, but remove images and descendants from synth/review/split/train downstream unless explicitly unexcluded.
 
 ### Run Directory Internal Structure
 ```

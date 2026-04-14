@@ -14,6 +14,8 @@ import csv
 import json
 from pathlib import Path
 
+from utils.dataset_exclusion import load_dataset_excluded_ids
+
 
 def _parse_yolo_line(line: str) -> tuple[int, float, float, float, float] | None:
     parts = line.strip().split()
@@ -47,6 +49,7 @@ def prune_massive_synth_boxes(
     if not manifest_path.exists():
         raise FileNotFoundError(f"Manifest not found: {manifest_path}")
 
+    excluded_ids = load_dataset_excluded_ids(manifest_path)
     synth_ids: set[str] = set()
     with open(manifest_path, "r", newline="", encoding="utf-8") as handle:
         for row in csv.DictReader(handle):
@@ -57,7 +60,7 @@ def prune_massive_synth_boxes(
             if not include_rejected and _is_rejected(row):
                 continue
             image_id = (row.get("image_id") or "").strip()
-            if image_id:
+            if image_id and image_id not in excluded_ids:
                 synth_ids.add(image_id)
 
     stats = {

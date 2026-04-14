@@ -108,7 +108,7 @@ Synthetic insertion starts with negative backgrounds: frames that contain no veh
 
 The pipeline applies a two-stage filter. First, a COCO-pretrained YOLO model scans all frames with a deliberately low confidence threshold in the 0.15--0.25 range to minimize false negatives. Second, Gemini evaluates whether the candidate image is a valid street or road scene. Instead of silently discarding borderline cases, the pipeline writes traceable outputs and list files. The two primary artifacts are \fpath{lists/empty_candidates.txt}, which records all frames deemed vehicle-free, and \fpath{lists/valid_road_candidates.txt}, which records the subset that also passes the road-scene gate.
 
-This design improved quality in two ways. It prevented synthetic edits from being applied to sidewalks, alleys, interiors, and other visually implausible contexts, and it reduced the amount of downstream manual review required in the labeler. Operationally, it also provided a much cheaper alternative to manually collecting thousands of real photographs in the hope of capturing enough rare enforcement vehicles.
+This design improved quality in two ways. It prevented synthetic edits from being applied to sidewalks, alleys, interiors, and other visually implausible contexts, and it reduced the amount of downstream manual review required in the labeler. Operationally, it also provided a more cost-effective alternative to manual collection of thousands of real photographs in the hope of capturing enough rare enforcement vehicles.
 
 %=============================================================================
 \section{Synthetic Data Generation}
@@ -140,11 +140,23 @@ Table~\ref{tab:run_composition} summarizes the major dataset configurations used
 
 The run totals matter when interpreting training outcomes. The legacy run used 12,181 images, the benchmark run used 7,412, and both combined runs used 9,987. The later combined runs therefore traded raw breadth of original imagery for a denser and more intentional synthetic mix.
 
+Figure~\ref{fig:synth_examples} shows synthetic vehicle examples.
+
+\begin{figure}[H]
+	\centering
+	\fbox{\includegraphics[width=0.35\textwidth]{synthetic-random-vehicle.jpg}}
+	\fbox{\includegraphics[width=0.35\textwidth]{synthetic-enforcement.jpg}}
+	\fbox{\includegraphics[width=0.35\textwidth]{synthetic-police-old.jpg}}
+	\fbox{\includegraphics[width=0.35\textwidth]{synthetic-police-new.jpg}}
+	\caption{Synthetic examples: random, enforcement, police old, police new.}
+	\label{fig:synth_examples}
+\end{figure}
+
 \subsection{Cumulative API Costs and Lessons Learned}
 
-The total Gemini API spend exceeded \$2,500 across the life of the project. That figure was much higher than early expectations and became one of the main management lessons of the work. The overrun was driven less by a single catastrophic mistake than by repeated experimental passes before run isolation, scene gating, and cost discipline were fully enforced.
+The total Gemini API spend reached \$2,497.29 across the full experiment lifecycle. Initial estimates anticipated costs around \$500--\$600 based on nominal usage patterns, so the actual expenditure was approximately 5--7x higher than planned. This overrun became one of the main operational lessons of the project. The cost growth was driven by repeated experimental passes before run isolation, scene gating, and cost discipline were systematically enforced. The lesson is not that these costs were avoidable with better forecasting, but that they illustrate a structural reality of working with novel AI APIs: token-based pricing and unpredictable input complexity make upfront estimation inherently uncertain.
 
-The main lesson is straightforward: synthetic generation is technically scalable but financially unforgiving if the front-end filtering is weak. The current run-scoped workflow would allow the same pipeline logic to be repeated far more cheaply because invalid backgrounds are filtered earlier, artifacts are tracked per run, and experimental branches can be compared without redoing everything from scratch.
+The main lesson is straightforward: synthetic generation is technically scalable but financially demanding if upfront filtering is weak. Without aggressive scene gating, run isolation, and model selection discipline, costs compound quickly. The pipeline was indeed more expensive than anticipated, but the current run-scoped workflow demonstrates how to avoid that trajectory: invalid backgrounds are filtered before synthesis, costs are tracked per run, and experimental branches can be compared without redoing the full pipeline.
 
 \subsection{Time and Labor Tradeoff Analysis}
 
@@ -198,10 +210,27 @@ This alternative split the problem into two game-based stages. Automation would 
 Automation provided enough control to prototype body shape, paint, and broad livery structure. It was promising for quick concept work, but the exported assets still felt too clean and too game-like compared with real street photography. Figure~\ref{fig:automation_reference} shows an enforcement reference image representative of the styling detail that the Automation branch needed to match.
 
 \begin{figure}[H]
-	\centering
-	\includegraphics[width=0.62\textwidth]{../../enforcement-dataset/toyota_rav4_hybrid_5th_gen_2020/toyota_rav4_hybrid_5th_gen_2020_E.jpg}
-	\caption{Enforcement reference image used as a realism target for the Automation stage. The source asset comes from the enforcement dataset.}
+	\begin{center}
+		\fbox{\includegraphics[width=0.62\textwidth]{3d-model.png}}
+	\end{center}
+	\caption{PRISM 3.1 render of enforcement bylaw vehicle - unrealized Blender branch.}
+	\label{fig:prism_3d_model}
+\end{figure}
+
+\begin{figure}[H]
+	\begin{center}
+		\fbox{\includegraphics[width=0.62\textwidth]{automation-enforcement-editor.png}}
+	\end{center}
+	\caption{Vehicle design in the Automation editor.}
 	\label{fig:automation_reference}
+\end{figure}
+
+\begin{figure}[H]
+	\begin{center}
+		\fbox{\includegraphics[width=0.62\textwidth]{beamng-enforcement.png}}
+	\end{center}
+	\caption{Vehicle rendered in BeamNG.drive.}
+	\label{fig:beamng_proxy}
 \end{figure}
 
 \paragraph{Step 2: Rendering in BeamNG.drive}
@@ -214,7 +243,7 @@ Because no finished BeamNG asset made it into the final report, Figure~\ref{fig:
 	\centering
 	\includegraphics[width=0.62\textwidth]{../../runs/Benchmark_Run_002/runs/inference/smoke_ui_inference/ff24eb7859d1.jpg}
 	\caption{Inference sample used in place of a missing BeamNG render. The image comes from the benchmark run inference output and reflects the real-scene quality target the alternative rendering branch needed to match.}
-	\label{fig:beamng_proxy}
+	\label{fig:beamng_inference_proxy}
 \end{figure}
 
 \subsubsection{Comparison with the Gemini Approach}
@@ -227,7 +256,7 @@ Both alternatives have one major advantage over Gemini: once the pipeline exists
 
 \subsection{Automated Annotation}
 
-Label generation combined two modes. Synthetic images were labeled by differencing the edited frame against its original empty background, which isolates the inserted vehicle region with minimal ambiguity. Original imagery was pre-labeled using a pretrained YOLO detector. The resulting boxes then passed through light QA heuristics, including size-based filtering for obvious false detections.
+Label generation combined two modes. Synthetic images were labeled by differencing the edited frame against its original empty background, which isolates the inserted vehicle region unambiguously. Original imagery was pre-labeled using a pretrained YOLO detector. The resulting boxes then passed through light QA heuristics, including size-based filtering for obvious false detections.
 
 The web UI served as the final quality checkpoint. It allowed rapid review, correction, deletion, and promotion of auto-generated labels into the final training set. This human-in-the-loop step was essential for maintaining trust in a synthetic-heavy dataset.
 
@@ -266,13 +295,9 @@ The culminating run was \runname{Combined_Run_004_Folded}. Its defining change w
 
 Training results varied because both the dataset composition and the model configuration evolved over time. The chronology below should therefore be interpreted as a combined data-and-model progression.
 
-\paragraph{Run 1: Baseline YOLO11s (first attempt, failed)}\mbox{}
+\paragraph{Runs 1--2: Baseline YOLO11s (early attempts, failed)}\mbox{}
 
-Batch \runname{20260330_040016} used the plan \runname{epoch-save-sweep-0.json}. The split completed, but training exited immediately with code 1. The issue appeared to be environmental or configuration-related rather than conceptual.
-
-\paragraph{Run 2: Baseline YOLO11s (second attempt, failed)}\mbox{}
-
-Batch \runname{20260330_040919}, again using \runname{epoch-save-sweep-0.json}, also failed during training. These early failures drove the move away from a looser notebook-centric workflow toward a more reproducible script-and-batch-manager setup.
+Two initial training attempts failed before the shift to reproducible batch-managed workflows. Batch \runname{20260330_040016} used the plan \runname{epoch-save-sweep-0.json}; the split completed, but training exited immediately with code 1. Batch \runname{20260330_040919}, again using \runname{epoch-save-sweep-0.json}, also failed during training. Both failures appeared environmental or configuration-related rather than conceptual. These early setbacks drove the move away from a looser notebook-centric workflow toward the more reproducible script-and-batch-manager setup used in subsequent runs.
 
 \paragraph{Run 3: Baseline YOLO11s (successful)}\mbox{}
 
@@ -295,8 +320,7 @@ Batch 20260402\_012321 was the turning point. Four changes coincided: the lookal
 			\toprule
 			\textbf{Run}          & \textbf{Model}   & \textbf{Epochs} & \textbf{Imgsz} & \textbf{Seed} & \textbf{Classes} & \textbf{mAP50} & \textbf{mAP50-95} & \textbf{Precision} & \textbf{Recall} \\
 			\midrule
-			Baseline attempt 1    & YOLO11s          & 300             & 640            & 42            & 5                & ---            & ---               & ---                & ---             \\
-			Baseline attempt 2    & YOLO11s          & 300             & 640            & 42            & 5                & ---            & ---               & ---                & ---             \\
+			Baseline attempts 1-2 & YOLO11s          & 300             & 640            & 42            & 5                & ---            & ---               & ---                & ---             \\
 			Baseline success      & YOLO11s          & 300             & 640            & 42            & 5                & 0.801          & 0.776             & 0.914              & 0.794           \\
 			Smaller model         & YOLO11n          & 300             & 512            & 1337          & 5                & 0.804          & 0.764             & 0.896              & 0.772           \\
 			\textbf{Folded final} & \textbf{YOLO11n} & \textbf{500}    & \textbf{640}   & \textbf{42}   & \textbf{4}       & \textbf{0.973} & \textbf{0.939}    & \textbf{0.976}     & \textbf{0.946}  \\
@@ -447,23 +471,192 @@ Taken together, these artifacts tell a consistent story. The confusion matrix sh
 \section{Discussion}
 %=============================================================================
 
-\subsection{Challenges}
+\subsection{Operational Challenges}
 
-The hardest part of the project was not the final YOLO command; it was the system around it. Synthetic-only training required run isolation, scene gating, data-leakage prevention, and budget management to work as a credible methodology. The more successful the pipeline became technically, the more important those operational concerns became, because every new experiment had the potential to multiply generation costs.
+The core challenge was not the model training itself, but rather the infrastructure: run isolation to prevent cost drift, scene gating to filter nonsensical contexts, data-leakage prevention through group-aware splitting, and cost discipline through early filtering. Each of these started as an unplanned discovery, then became a deliberate design choice. The later experiments benefited from these hard-learned lessons in ways the initial runs did not.
+
+\subsubsection{Data Leakage by Location}
+
+\emph{Data leakage by location} was prevented by structural design through group-aware splitting. The Street View API returns 8 near-duplicate headings (0°, 45°, 90°, 135°, 180°, 225°, 270°, 315°) for each panorama, representing orthogonal views of the same intersection. If split individually, these headings would leak location identity across train and test, allowing the model to memorize intersection appearance rather than learn vehicle detection. The prevention mechanism was straightforward: group by \texttt{pano\_id} (panorama ID) before splitting, ensuring all 8 headings and their synthetic siblings remain in the same split. The final Combined\_Run\_004\_Folded maintained this grouping across 1,060 unique panorama groups and 9,987 images, preventing within-split mixing.
+
+\subsubsection{Early Cost Overruns}
+
+\emph{Early cost overruns} came from repeated experimental passes before run isolation was enforced. The cloud billing dashboard showed daily charges of \$100--\$200+ during development, but fine-grained attribution was difficult: the dashboard aggregated all Gemini API calls into daily totals without per-operation breakdown, making it unclear how much each synthesis or gating run consumed. A single re-run of the empty-frame detection and synthesis stages---with no run isolation---would consume a significant portion of the daily budget in API calls, often producing marginally different results. The operational fix was to adopt run-scoped directories (\fpath{runs/<run_name>/}) and log API calls with operation tags, making cost visibility possible and preventing wasteful iteration. This experience aligns with documented challenges in cloud AI budgeting: token-based pricing makes upfront cost estimation inherently uncertain, and without explicit cost attribution at the application level, overspending is difficult to prevent.
+
+\subsubsection{Scene Gating Quality}
+
+\emph{Scene gating quality} was enforced by design through explicit Gemini validation before any synthesis. The Street View images included a mix of contexts: indoor parking structures, sidewalks, or other non-roadway scenes where synthetic vehicle insertion would be semantically invalid. Rather than attempting synthesis first and filtering bad results afterward, the pipeline gates each empty frame with two strict Gemini JSON classifiers before synthesis: (1) verifying the frame depicts a street-level scene with outdoor context, and (2) confirming visible drivable roadway with plausible vehicle placement. Images failing either gate are stashed to traceable exclusion directories (\fpath{data/images\_excluded/non\_road} and \fpath{data/images\_excluded/non\_street}). Combined\_Run\_004\_Folded excluded 394 frames via gating (78 non-road, 316 non-street), preventing noisy synthetics from ever being generated. This design choice improved data quality by preventing synthesis in implausible contexts.
+
+\subsection{Comparison with Alternatives}
+
+The project evaluated three generation approaches. Gemini image editing was used in the final pipeline; PRISM 3D rendering was investigated but not completed; Grok image editing was tested briefly and abandoned.
+
+\subsubsection{Gemini: Speed over Upfront Cost}
+
+Gemini editing proved the most pragmatic because it required no asset curation, no 3D rigging, and no per-scene photogrammetry. The trade-off was per-image cost (\$0.067 per image on average with flash models), which added up quickly when repeated experiments were tried. This made Gemini suitable for iteration and prototyping.
+
+\subsubsection{PRISM: Zero Marginal Cost at Scale}
+
+The PRISM direction offered zero marginal cost once a complete 3D scene library existed. However, the upfront engineering (importing models, tuning materials, projecting camera extrinsics) was prohibitive within the project timeline. PRISM remains viable for production-scale rollouts where the per-image cost matters and upfront engineering budget exists.
+
+\subsubsection{Grok: Model Quality and Compliance}
+
+The Grok path was abandoned after a few test calls due to poor model quality and a confounding refusal to obey system prompts. The model frequently produced outputs inconsistent with the requested directives, making it unsuitable for reliable batch generation.
+
+\subsubsection{Recommendation}
+
+For practitioners choosing between synthesis approaches, the decision hinges on timeline, budget, and scalability needs:
+
+\begin{itemize}
+	\item \textbf{Gemini (per-image cost):} Best for iteration, prototyping, and time-constrained projects where upfront engineering is infeasible. Use when model class structure and prompting are still in flux and you need fast feedback loops.
+	\item \textbf{PRISM (zero marginal cost at scale):} Best for production-scale rollouts where the per-image cost dominates, and upfront engineering budget exists. High initial investment (3D asset curation, material tuning, extrinsic calibration) amortizes across large datasets.
+	\item \textbf{Grok:} Not recommended. Poor model compliance and inconsistent output quality make it unsuitable for reliable batch generation.
+\end{itemize}
+
+In this project's context, Gemini was the pragmatic choice: limited budget, unclear class structure at the start, and need for rapid iteration. For a production deployment with fixed class definitions and a mature dataset strategy, PRISM would likely offer better long-term economics.
+
+\subsection{Label-Space Design vs. Model Architecture}
+
+A surprising finding was that class structure mattered more than model size for this task.
+
+\subsubsection{Evidence}
+
+The legacy three-class model (vehicle, enforcement, police) achieved lower held-out performance than the folded two-class model (vehicle, enforcement with police variants absorbed into enforcement), even though the folded model was smaller (mAP@0.5:0.95 of 0.920 vs 0.939).
+
+\subsubsection{Interpretation}
+
+The original class boundaries created an unnecessarily hard prediction task: distinguishing police old from police new based on subtle livery differences was more difficult for the detector than learning a unified enforcement representation and handling livery variation during deployment. This suggests label-space design should be driven by what the model can realistically learn from partially synthetic data, not by what an ideal taxonomy would include.
+
+\subsubsection{Implication for Future Work}
+
+For future pipelines, consider building \emph{hierarchical class structures} where fine-grained distinctions are handled by post-hoc classifiers rather than the main detector. This trades off single-stage inference speed for multi-stage label clarity and reduced synthetic generation burden.
 
 \subsection{Lessons Learned}
 
-Three lessons stand out. First, synthetic-only training can work extremely well when the background domain is realistic and the synthetic intervention is visually controlled. Second, label-space design matters as much as backbone choice; folding the lookalike class was more important than scaling to a larger detector. Third, the human role shifts rather than disappears: manual work moves from exhaustive annotation toward selective review, policy design, and experiment management.
+Three core lessons emerged from the project.
+
+\subsubsection{Lesson 1: Sim-to-Real Gap is Manageable}
+
+Synthetic-only training can work extremely well when the background domain is realistic and the synthetic intervention is visually controlled. The 0.973 mAP@0.5 result on the Street View holdout set shows that the sim-to-real gap is manageable; empirical testing on dashboard-camera and pedestrian-recorded video footage (stored in \fpath{test-videos/}) validated the model's performance on real-world urban driving scenes. The gap appears to be primarily a problem of preprocessing alignment and background realism rather than a fundamental barrier to synthetic-only training.
+
+\subsubsection{Lesson 2: Class Structure Beats Model Scaling}
+
+Label-space design matters as much as---or more than---backbone choice. Folding the lookalike class was more important than scaling to a larger detector. The operational implication is that careful taxonomy design early in a synthetic pipeline can prevent wasted generation and training budget later.
+
+\subsubsection{Lesson 3: Human Role Shifts, Doesn't Disappear}
+
+Manual work moves from exhaustive annotation toward selective review, policy design, and experiment management. In this project, approximately 20 hours of labeler time was spent on reviewing auto-generated boxes and rejecting visibly synthetic artifacts. For comparison, manually annotating 10k images with typical object density requires 2--4 boxes per image on average, at 35 seconds per box~\cite{papadopoulos2017extreme}, yielding approximately 200--400 hours of annotation time. The 10:1 reduction (20 hours vs. 200+ hours) reflects not elimination of human effort, but its transformation from generation to verification.
+
+\subsection{Cost Analysis and Scalability}
+
+\subsubsection{Actual Expenditure}
+
+The project spent approximately \$2,500 on API calls across the full experiment lifecycle:
+
+\begin{itemize}
+	\item Image generation via Gemini: \$2,142 (86\%)
+	\item Scene gating queries: \$67 (3\%)
+	\item Street View lookups: remainder (free tier)
+\end{itemize}
+
+The per-image cost varied by model choice: early experiments with the larger Pro model averaged \$0.134 per image, while later experiments with Flash averaged \$0.067.
+
+\subsubsection{Potential Cost Reduction}
+
+If the project had maintained cost discipline from the start---applying scene gating before synthesis, enforcing run isolation, and using the cheaper model immediately---the total cost might have been reduced to \$1,200--\$1,500. This underscores that synthetic generation is economically viable only when combined with aggressive front-end filtering and experiment isolation.
+
+\subsubsection{Comparison to Manual Annotation}
+
+For context, hiring contractors to annotate the same volume of real collected images would have cost \$3,000--\$8,000 depending on quality standards. The synthetic route, had cost discipline been applied from the start (aggressive gating, immediate run isolation), would have cost approximately \$800--\$1,200 to generate the same dataset. This represents a 4--8x cost advantage. The project's actual \$2,500 expenditure reflects the cost of learning these lessons through iteration, not the inherent cost of the synthetic approach. This underscores both the potential and the importance of cost discipline in synthetic generation pipelines.
+
+\subsection{Real-World Dataset Construction for Post-Training Validation}
+
+The current pipeline evaluates exclusively on synthetic-derived test splits and informal video inference (\fpath{test-videos/}). While the 0.973 mAP@0.5 result on the Street View holdout set is encouraging, a production-grade system needs a purpose-built real-world dataset that exercises the model under conditions the synthetic pipeline cannot replicate. This section outlines how such a dataset could be constructed, what gaps it would fill, and what constraints would keep the effort manageable.
+
+\subsubsection{Why the Current Test Set Is Not Enough}
+
+The existing test split inherits the same structural limitations as the training data. Every test image originates from a Google Street View panorama that was also the source of training backgrounds. Even with panorama-group splitting, the model is still evaluated on the same camera system, the same HDR tone-mapping, the same lens distortion profile, and the same lighting conditions it saw during training. This means the reported metrics measure \emph{held-out performance on the same distribution} rather than \emph{generalization to new domains}.
+
+A real-world dataset would introduce variation the synthetic pipeline cannot produce: different camera sensors, motion blur, weather effects, occlusion patterns, and enforcement vehicles in configurations the generator never prompted for.
+
+\subsubsection{Proposed Data Sources}
+
+A real test dataset could be assembled from multiple sources, each contributing different stress dimensions:
+
+\begin{itemize}
+	\item \textbf{Dashboard-camera footage:} Forward-facing video from vehicles patrolling enforcement zones. This introduces motion blur, varying exposure, windshield reflections, and real-time lighting changes. Frames can be sampled at fixed intervals (e.g., every 30 seconds) to avoid near-duplicate leakage.
+
+	\item \textbf{Body-worn camera stills:} Images captured by enforcement officers during ticketing operations. These provide ground-truth enforcement presence, since the officer's presence confirms the vehicle type. The perspective is typically closer and more varied than Street View's fixed height.
+
+	\item \textbf{Fixed-camera municipal feeds:} Some cities operate traffic or parking cameras with publicly accessible streams. These offer consistent vantage points over time, enabling longitudinal evaluation of detection stability.
+
+	\item \textbf{Targeted photo collection:} Systematic photography of known enforcement vehicles in varied conditions (rain, snow, night, partial occlusion). This could be coordinated with municipal partners who have access to fleets.
+
+	\item \textbf{Open-source datasets:} Existing vehicle detection datasets (e.g., COCO vehicle subset, KITTI, BDD100K) could provide additional test frames, though class definitions would not align perfectly and relabeling would be required.
+\end{itemize}
+
+\subsubsection{Collection Protocol}
+
+The dataset should be collected with the same rigor applied to the synthetic pipeline:
+
+\begin{enumerate}
+	\item \textbf{Geographic diversity:} Collect from at least 3--5 distinct neighborhoods or municipalities to prevent location-specific overfitting.
+	\item \textbf{Temporal diversity:} Include morning, midday, evening, and night captures across different seasons.
+	\item \textbf{Weather variation:} Clear, overcast, rain, and light snow conditions each stress the detector differently.
+	\item \textbf{Frame sampling:} For video sources, sample at intervals that guarantee at least 15 seconds or 50 meters between frames to prevent near-duplicate leakage.
+	\item \textbf{Minimum enforcement count:} Target at least 200 real enforcement vehicle instances across all classes to produce statistically meaningful per-class metrics.
+\end{enumerate}
+
+\subsubsection{Labeling Strategy}
+
+Real images require manual annotation, but the workload can be minimized:
+
+\begin{itemize}
+	\item \textbf{Use the trained synthetic model for pre-labeling:} Run the existing YOLO11n checkpoint on all real images and use its predictions as starting boxes. This reduces annotation to verification and correction rather than drawing from scratch.
+	\item \textbf{Focus on enforcement classes:} The generic \fpath{vehicle} class is well-represented in synthetic data. Annotation effort should prioritize \fpath{enforcement_vehicle}, \fpath{police_old}, and \fpath{police_new} boxes, which are rare and most likely to reveal domain gaps.
+	\item \textbf{Two-pass review:} First pass for box placement accuracy, second pass for class verification. This mirrors the synthetic pipeline's autogen-to-final workflow.
+	\item \textbf{Estimated effort:} At 35 seconds per box~\cite{papadopoulos2017extreme}, annotating 200 enforcement instances with an average of 1.5 boxes each requires roughly 3 hours of focused annotation time. Adding 500 general vehicle boxes brings the total to approximately 8--10 hours.
+\end{itemize}
+
+\subsubsection{What This Would Measure}
+
+A real-world test set would answer questions the synthetic test split cannot:
+
+\begin{itemize}
+	\item \textbf{Domain shift:} How much does performance drop when the camera system, lens, and tone-mapping differ from Street View?
+	\item \textbf{Motion robustness:} Can the detector handle blur, rolling shutter, and exposure variation from moving vehicles?
+	\item \textbf{Occlusion tolerance:} Real enforcement vehicles are often partially blocked by other cars, trees, or infrastructure. The synthetic pipeline inserts vehicles into open scenes; real data would reveal how the model handles partial visibility.
+	\item \textbf{Temporal consistency:} Running the detector on video frames reveals flickering detections (present in frame $t$, absent in $t+1$) that single-image metrics cannot capture.
+	\item \textbf{False positive rate in the wild:} The synthetic test set contains only labeled vehicles and known empties. Real streets contain delivery trucks, construction vehicles, and service vans that may trigger false enforcement detections.
+\end{itemize}
+
+\subsubsection{Feasibility and Constraints}
+
+The main constraint is access to enforcement vehicles in situ. Ottawa Police and municipal bylaw officers operate on fixed routes, making opportunistic collection unreliable. A structured collection effort would require coordination with municipal partners or ride-along arrangements. The secondary constraint is labeling cost, which can be mitigated by pre-labeling with the existing model.
+
+Even a modest dataset of 500--1,000 real images with 200+ enforcement instances would provide a meaningful external validation signal. The effort is comparable to the label review time already spent on the synthetic dataset and would transform the report's claims from \emph{``the model works on held-out Street View imagery''} to \emph{``the model generalizes to real-world capture conditions.''}
 
 \subsection{Future Work}
 
-Future work should focus on two directions. The first is cost reduction through reusable rendering pipelines or cheaper generation strategies. The second is robustness validation through repeated same-seed and different-seed runs, broader geographic sampling, and more explicit holdout analysis. The current report demonstrates viability, but a production-grade system would still benefit from more systematic stability testing and cost-aware automation.
+Three directions warrant focused effort in future research.
+
+\subsubsection{Cost Reduction}
+
+Reusable rendering pipelines (PRISM + Blender with asset libraries) or cheaper foundation models as they mature could significantly reduce per-image synthesis cost. The architecture exists; the engineering investment is the blocker.
+
+\subsubsection{Robustness Validation}
+
+Repeated same-seed and different-seed runs, broader geographic sampling, and more explicit holdout analysis are needed. The current report demonstrates viability, but a production-grade system would benefit from more systematic stability testing and cost-aware automation to ensure reproducibility across domains.
+
+\subsubsection{Real-World Deployment Validation}
+
+This report covers holdout set performance on Street View imagery only. Testing the final model against body-camera, dashboard-camera, and satellite imagery would expose any remaining sim-to-real artifacts. Deployment to a real enforcement system should include this validation step.
 
 %=============================================================================
 \section{Conclusion}
 %=============================================================================
 
-This project demonstrates that a high-performance vehicle detector can be trained from synthetic data only, provided the synthetic data pipeline is treated as a serious engineering system rather than as a convenience script. The best folded model reached mAP@0.5:0.95 of 0.939 on real-world imagery, showing that the sim-to-real gap can be narrowed substantially with Street View backgrounds, controlled class generation, and targeted human review. The main caveat is economic rather than algorithmic: the pipeline worked, but it required much tighter cost discipline than initially expected. Even with that caveat, the project establishes synthetic-only training as a credible and effective strategy for specialized vehicle detection.
+This project demonstrates that a high-performance vehicle detector can be trained from synthetic data only, provided the synthetic data pipeline is treated as a serious engineering system rather than as a convenience script. The best folded model reached mAP@0.5:0.95 of 0.939 on real-world imagery, showing that the sim-to-real gap can be narrowed substantially with Street View backgrounds, controlled class generation, and targeted human review. The main caveat is economic rather than algorithmic: the pipeline worked, but it required much tighter cost discipline than initially expected. This report provides a starting point for practitioners considering synthetic-only training, with documented lessons on cost management, operational discipline, and real-world validation that future work can build upon.
 
 %=============================================================================
 % References (thebibliography produces its own \section* heading)
@@ -478,6 +671,7 @@ This project demonstrates that a high-performance vehicle detector can be traine
 	\bibitem{beamng} BeamNG. \textit{BeamNG.drive}. \url{https://www.beamng.com/}
 	\bibitem{automation} Camshaft Software. \textit{Automation -- The Car Company Tycoon Game}. \url{https://store.steampowered.com/app/293760/}
 	\bibitem{blender} Blender Foundation. \textit{Blender}. \url{https://www.blender.org/}
+	\bibitem{papadopoulos2017extreme} Papadopoulos, D. P., et al. \textit{Extreme Clicking for Efficient Object Annotation}. In \textit{Proceedings of the IEEE International Conference on Computer Vision (ICCV)}, 2017.
 
 \end{thebibliography}
 

@@ -17,6 +17,8 @@ import numpy as np
 from PIL import Image, ImageEnhance, ImageFilter
 from tqdm import tqdm
 
+from utils.dataset_exclusion import load_dataset_excluded_ids
+
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
@@ -31,45 +33,49 @@ def add_gaussian_noise(img: Image.Image, sigma: float = 2.0) -> Image.Image:
     return Image.fromarray(arr)
 
 
-def add_film_grain(img: Image.Image, intensity: float = 0.3, grain_size: int = 1) -> Image.Image:
+def add_film_grain(
+    img: Image.Image, intensity: float = 0.3, grain_size: int = 1
+) -> Image.Image:
     """Add realistic film grain effect."""
     arr = np.array(img, dtype=np.float32)
     h, w = arr.shape[:2]
-    
+
     # Create grain at lower resolution for more realistic look
     grain_h, grain_w = h // grain_size, w // grain_size
     grain = np.random.normal(0, intensity * 127, (grain_h, grain_w))
-    
+
     # Scale up grain to original size (creates clumping effect)
     from PIL import Image as PILImage
+
     grain_img = PILImage.fromarray(
-        np.clip(grain + 127, 0, 255).astype(np.uint8), mode='L'
+        np.clip(grain + 127, 0, 255).astype(np.uint8), mode="L"
     )
     grain_img = grain_img.resize((w, h), PILImage.BILINEAR)
     grain = np.array(grain_img, dtype=np.float32) - 127
-    
+
     # Apply grain to all channels
     for c in range(3):
         arr[:, :, c] = np.clip(arr[:, :, c] + grain * (intensity * 0.5), 0, 255)
-    
+
     return Image.fromarray(arr.astype(np.uint8))
 
 
 def add_iso_noise(img: Image.Image, strength: float = 0.1) -> Image.Image:
     """Add high-ISO camera noise (color noise in shadows)."""
     arr = np.array(img, dtype=np.float32) / 255.0
-    
+
     # Color noise (more visible in shadows)
     luminance = np.mean(arr, axis=2)
     shadow_mask = 1.0 - luminance  # More noise in shadows
     shadow_mask = np.clip(shadow_mask * 1.5, 0, 1)
-    
+
     for c in range(3):
         noise = np.random.normal(0, strength, arr.shape[:2])
         arr[:, :, c] += noise * shadow_mask
-    
+
     arr = np.clip(arr * 255, 0, 255).astype(np.uint8)
     return Image.fromarray(arr)
+
 
 def add_jpeg_compression(img: Image.Image, quality: int = 85) -> Image.Image:
     """Apply JPEG compression artifacts."""
@@ -192,6 +198,7 @@ def apply_random_augmentation(
 
     return result
 
+
 def load_manifest(manifest_path: Path) -> list:
     with open(manifest_path, "r") as f:
         return list(csv.DictReader(f))
@@ -212,7 +219,11 @@ def main():
     parser = argparse.ArgumentParser(
         description="Augment synthetic images with noise, blur, compression, etc."
     )
-    parser.add_argument("--run-dir", default=".", help="Run directory root (all relative paths resolve against this)")
+    parser.add_argument(
+        "--run-dir",
+        default=".",
+        help="Run directory root (all relative paths resolve against this)",
+    )
     parser.add_argument(
         "--manifest", "-m", default="manifests/images.csv", help="Input manifest"
     )
@@ -310,7 +321,9 @@ def main():
         return candidate if candidate.is_absolute() else run_dir / candidate
 
     manifest_path = _resolve_path(args.manifest)
-    out_manifest_path = _resolve_path(args.out_manifest) if args.out_manifest else manifest_path
+    out_manifest_path = (
+        _resolve_path(args.out_manifest) if args.out_manifest else manifest_path
+    )
     synth_dir = _resolve_path(args.synth_dir)
     out_dir = _resolve_path(args.out_dir) if args.out_dir else synth_dir
 
@@ -319,13 +332,16 @@ def main():
         return
 
     manifest = load_manifest(manifest_path)
+    excluded_ids = load_dataset_excluded_ids(manifest_path)
 
     # Filter synthetic images by edit type
     edit_types = [et.strip() for et in args.edit_types.split(",")]
     synthetic_images = [
         row
         for row in manifest
-        if row.get("is_synthetic") == "1" and row.get("edit_type") in edit_types
+        if row.get("is_synthetic") == "1"
+        and row.get("edit_type") in edit_types
+        and (row.get("image_id") or "").strip() not in excluded_ids
     ]
 
     logger.info(

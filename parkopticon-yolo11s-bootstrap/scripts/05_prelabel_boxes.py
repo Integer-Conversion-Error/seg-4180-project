@@ -18,6 +18,8 @@ import numpy as np
 from PIL import Image
 from tqdm import tqdm
 
+from utils.dataset_exclusion import load_dataset_excluded_ids
+
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -431,6 +433,7 @@ def main():
         return
 
     manifest = load_manifest(manifest_path)
+    excluded_ids = load_dataset_excluded_ids(manifest_path)
 
     logger.info(f"Loading YOLO model: {args.model}")
     ultralytics_module = importlib.import_module("ultralytics")
@@ -448,6 +451,8 @@ def main():
         file_path = Path(row.get("file_path", ""))
 
         if not file_path.exists() or row.get("status") != "ok":
+            continue
+        if image_id in excluded_ids:
             continue
         if not args.include_rejected and is_rejected(row):
             continue

@@ -16,6 +16,8 @@ from pathlib import Path
 
 from tqdm import tqdm
 
+from utils.dataset_exclusion import load_dataset_excluded_ids
+
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -310,6 +312,10 @@ def ensure_synthetic_pano_inheritance(manifest: list) -> list:
     return manifest
 
 
+def _is_dataset_excluded(row: dict, excluded_ids: set[str]) -> bool:
+    return (row.get("image_id") or "").strip() in excluded_ids
+
+
 def validate_no_leakage(manifest: list) -> list:
     """Validate that no pano_id group appears in multiple splits.
 
@@ -420,6 +426,7 @@ def main():
         return
 
     manifest = load_manifest(manifest_path)
+    excluded_ids = load_dataset_excluded_ids(manifest_path)
 
     # ========================================================================
     # Apply Synthetic Pano Inheritance
@@ -432,6 +439,9 @@ def main():
             row["split"] = ""
             continue
         if row.get("status") != "ok":
+            continue
+        if _is_dataset_excluded(row, excluded_ids):
+            row["split"] = ""
             continue
         if not Path(row.get("file_path", "")).exists():
             continue

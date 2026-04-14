@@ -8,9 +8,11 @@ non-overwriting output paths per confidence value.
 
 import argparse
 import csv
+import shutil
 import subprocess
 import sys
 from pathlib import Path
+import shutil
 
 
 def frange(start: float, stop: float, step: float) -> list[float]:
@@ -196,6 +198,10 @@ def main() -> int:
 
         run_rows = sanitize_manifest_for_prelabel(base_rows, run_dir)
         write_manifest_rows(manifest_input, run_rows)
+        excluded_src = run_dir / "lists" / "excluded_from_synth.txt"
+        excluded_dst = sweep_dir / "lists" / "excluded_from_synth.txt"
+        if excluded_src.exists():
+            shutil.copy2(excluded_src, excluded_dst)
 
         command = [
             sys.executable,

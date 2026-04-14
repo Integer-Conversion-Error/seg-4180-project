@@ -51,6 +51,11 @@ from utils.grok_image_api import (
     encode_image_to_base64 as encode_grok_image_to_base64,
     generate_image as generate_grok_image,
 )
+from utils.dataset_exclusion import (
+    clear_dataset_exclusion_cache,
+    load_dataset_excluded_ids,
+    resolve_exclusion_path,
+)
 
 load_dotenv()
 
@@ -180,7 +185,7 @@ def _images_synth_dir() -> Path:
 
 
 def _excluded_from_synth_path() -> Path:
-    return _run_path("lists", "excluded_from_synth.txt")
+    return resolve_exclusion_path(_manifest_path())
 
 
 def _empty_candidates_path() -> Path:
@@ -890,11 +895,8 @@ def get_row_by_image_id(manifest, image_id: str):
     return None
 
 
-def load_excluded_ids() -> set:
-    if not _excluded_from_synth_path().exists():
-        return set()
-    with open(_excluded_from_synth_path(), "r", encoding="utf-8") as f:
-        return {line.strip() for line in f if line.strip()}
+def load_excluded_ids() -> set[str]:
+    return load_dataset_excluded_ids(_manifest_path())
 
 
 def _save_excluded_ids(excluded_ids: set[str]) -> None:
@@ -911,9 +913,14 @@ def _save_excluded_ids(excluded_ids: set[str]) -> None:
             for image_id in sorted_ids:
                 handle.write(f"{image_id}\n")
         os.replace(tmp_name, _excluded_from_synth_path())
+        clear_dataset_exclusion_cache()
     finally:
         if os.path.exists(tmp_name):
             os.remove(tmp_name)
+
+
+def _is_dataset_excluded(image_id: str, excluded_ids: set[str]) -> bool:
+    return (image_id or "").strip() in excluded_ids
 
 
 def load_empty_ids() -> set[str]:
@@ -2518,6 +2525,7 @@ def _parse_yolo_line(line: str) -> tuple[int, float, float, float, float] | None
 
 def _collect_synth_image_ids(include_rejected: bool = False) -> tuple[set[str], int]:
     manifest = load_manifest()
+    excluded_ids = load_excluded_ids()
     synth_ids: set[str] = set()
     rejected_excluded = 0
     for row in manifest:
@@ -2529,7 +2537,7 @@ def _collect_synth_image_ids(include_rejected: bool = False) -> tuple[set[str], 
             rejected_excluded += 1
             continue
         image_id = (row.get("image_id") or "").strip()
-        if image_id:
+        if image_id and not _is_dataset_excluded(image_id, excluded_ids):
             synth_ids.add(image_id)
     return synth_ids, rejected_excluded
 
@@ -3308,7 +3316,7 @@ async def get_labeler_images(
         if _is_rejected_row(row) and not allow_rejected:
             continue
         image_id = row.get("image_id")
-        if not include_excluded and image_id in excluded_ids:
+        if not include_excluded and _is_dataset_excluded(image_id, excluded_ids):
             continue
         needs_review_value = row.get("needs_review", "")
         is_synthetic = row.get("is_synthetic") == "1"
@@ -3333,9 +3341,15 @@ async def get_labeler_images(
             images.append(
                 {
                     "image_id": row.get("image_id"),
-                    "image_path": f"/api/labeler/image_file/{row.get('image_id')}",
+                    "image_path": (
+                        f"/api/labeler/image_file/{row.get('image_id')}?include_excluded=true"
+                        if include_excluded
+                        else f"/api/labeler/image_file/{row.get('image_id')}"
+                    ),
                     "is_synthetic": is_synthetic,
-                    "is_excluded": row.get("image_id") in excluded_ids,
+                    "is_excluded": _is_dataset_excluded(
+                        row.get("image_id") or "", excluded_ids
+                    ),
                     "edit_type": row.get("edit_type", ""),
                     "expected_class": row.get("expected_inserted_class", ""),
                     "review_status": row.get("review_status", "todo"),
@@ -3345,13 +3359,15 @@ async def get_labeler_images(
 
 
 @app.get("/api/labeler/image/{image_id}")
-async def get_labeler_image(image_id: str):
+async def get_labeler_image(image_id: str, include_excluded: bool = False):
     manifest = load_manifest()
     excluded_ids = load_excluded_ids()
     row = get_row_by_image_id(manifest, image_id)
     if not row:
         raise HTTPException(status_code=404, detail="Image not found")
     _raise_if_labeler_hidden(row)
+    if not include_excluded and _is_dataset_excluded(image_id, excluded_ids):
+        raise HTTPException(status_code=404, detail="Image not found")
     image_path = get_image_path(row)
     if not image_path or not image_path.exists():
         raise HTTPException(status_code=404, detail="Image file not found")
@@ -3369,10 +3385,14 @@ async def get_labeler_image(image_id: str):
 
     return {
         "image_id": image_id,
-        "image_path": f"/api/labeler/image_file/{image_id}",
+        "image_path": (
+            f"/api/labeler/image_file/{image_id}?include_excluded=true"
+            if include_excluded
+            else f"/api/labeler/image_file/{image_id}"
+        ),
         "boxes": boxes,
         "is_synthetic": row.get("is_synthetic") == "1",
-        "is_excluded": image_id in excluded_ids,
+        "is_excluded": _is_dataset_excluded(image_id, excluded_ids),
         "edit_type": row.get("edit_type", ""),
         "expected_class": row.get("expected_inserted_class", ""),
         "lookalike_similarity": _load_lookalike_metadata(image_id),
@@ -3393,6 +3413,8 @@ async def get_lookalike_images(include_rejected: bool = False):
             continue
         image_id = (row.get("image_id") or "").strip()
         if not image_id:
+            continue
+        if _is_dataset_excluded(image_id, excluded_ids):
             continue
         image_path = get_image_path(row)
         if not image_path or not image_path.exists():
@@ -3419,12 +3441,15 @@ async def get_lookalike_images(include_rejected: bool = False):
 
 
 @app.get("/api/lookalike/image/{image_id}")
-async def get_lookalike_image(image_id: str):
+async def get_lookalike_image(image_id: str, include_excluded: bool = False):
     manifest = load_manifest()
     row = get_row_by_image_id(manifest, image_id)
     if not row:
         raise HTTPException(status_code=404, detail="Image not found")
     _raise_if_labeler_hidden(row)
+    excluded_ids = load_excluded_ids()
+    if not include_excluded and _is_dataset_excluded(image_id, excluded_ids):
+        raise HTTPException(status_code=404, detail="Image not found")
 
     image_path = get_image_path(row)
     if not image_path or not image_path.exists():
@@ -3455,7 +3480,11 @@ async def get_lookalike_image(image_id: str):
 
     return {
         "image_id": image_id,
-        "image_path": f"/api/labeler/image_file/{image_id}",
+        "image_path": (
+            f"/api/labeler/image_file/{image_id}?include_excluded=true"
+            if include_excluded
+            else f"/api/labeler/image_file/{image_id}"
+        ),
         "boxes": boxes,
         "lookalike_boxes": lookalike_entries,
         "similarity_options": [
@@ -3477,6 +3506,8 @@ async def save_lookalike_metadata(image_id: str, data: LookalikeMetadataUpdate):
     if not row:
         raise HTTPException(status_code=404, detail="Image not found")
     _raise_if_labeler_hidden(row)
+    if _is_dataset_excluded(image_id, load_excluded_ids()):
+        raise HTTPException(status_code=404, detail="Image not found")
 
     image_path = get_image_path(row)
     if not image_path or not image_path.exists():
@@ -3528,12 +3559,15 @@ async def save_lookalike_metadata(image_id: str, data: LookalikeMetadataUpdate):
 
 
 @app.get("/api/labeler/image_file/{image_id}")
-async def get_labeler_image_file(image_id: str):
+async def get_labeler_image_file(image_id: str, include_excluded: bool = False):
     manifest = load_manifest()
     row = get_row_by_image_id(manifest, image_id)
     if not row:
         raise HTTPException(status_code=404, detail="Image not found")
     _raise_if_labeler_hidden(row)
+    excluded_ids = load_excluded_ids()
+    if not include_excluded and _is_dataset_excluded(image_id, excluded_ids):
+        raise HTTPException(status_code=404, detail="Image not found")
     image_path = get_image_path(row)
     if not image_path or not image_path.exists():
         raise HTTPException(status_code=404, detail="Image file not found")
@@ -3541,12 +3575,16 @@ async def get_labeler_image_file(image_id: str):
 
 
 @app.post("/api/labeler/labels/{image_id}")
-async def save_labeler_labels(image_id: str, data: LabelUpdate):
+async def save_labeler_labels(
+    image_id: str, data: LabelUpdate, include_excluded: bool = False
+):
     manifest = load_manifest()
     row = get_row_by_image_id(manifest, image_id)
     if not row:
         raise HTTPException(status_code=404, detail="Image not found")
     _raise_if_labeler_hidden(row)
+    if _is_dataset_excluded(image_id, load_excluded_ids()):
+        raise HTTPException(status_code=404, detail="Image not found")
 
     _labels_final_dir().mkdir(parents=True, exist_ok=True)
     label_path = _labels_final_dir() / f"{image_id}.txt"
@@ -3579,12 +3617,16 @@ async def save_labeler_labels(image_id: str, data: LabelUpdate):
 
 
 @app.post("/api/labeler/review/{image_id}")
-async def update_labeler_review_status(image_id: str, status: str):
+async def update_labeler_review_status(
+    image_id: str, status: str, include_excluded: bool = False
+):
     manifest = load_manifest()
     row = get_row_by_image_id(manifest, image_id)
     if not row:
         raise HTTPException(status_code=404, detail="Image not found")
     _raise_if_labeler_hidden(row)
+    if _is_dataset_excluded(image_id, load_excluded_ids()):
+        raise HTTPException(status_code=404, detail="Image not found")
 
     for row in manifest:
         if row.get("image_id") == image_id:
@@ -3777,7 +3819,7 @@ def get_synth_images(source: str = "empty", limit: int = 120):
             continue
         if source == "empty" and image_id not in empty_ids:
             continue
-        if image_id in excluded_ids:
+        if _is_dataset_excluded(image_id, excluded_ids):
             continue
 
         image_path = _resolve_manifest_image_path(row)
@@ -3820,7 +3862,7 @@ def get_synth_empty_review(limit: int = 1000):
             continue
         seen_ids.add(image_id)
         total_empty += 1
-        if image_id in excluded_ids:
+        if _is_dataset_excluded(image_id, excluded_ids):
             total_excluded += 1
 
     seen_ids = set()
@@ -3831,7 +3873,7 @@ def get_synth_empty_review(limit: int = 1000):
         if image_id in seen_ids:
             continue
         seen_ids.add(image_id)
-        if image_id in excluded_ids:
+        if _is_dataset_excluded(image_id, excluded_ids):
             continue
         image_path = _resolve_manifest_image_path(row)
         if not image_path:
@@ -4072,6 +4114,7 @@ def synth_generate(req: GenerateRequest):
 def _collect_synth_images(class_filter: str | None) -> list[Path]:
     if not _images_synth_dir().exists():
         return []
+    excluded_ids = load_excluded_ids()
     images: list[Path] = []
     for class_dir in sorted(_images_synth_dir().iterdir()):
         if not class_dir.is_dir():
@@ -4079,7 +4122,11 @@ def _collect_synth_images(class_filter: str | None) -> list[Path]:
         if class_filter and class_dir.name != class_filter:
             continue
         for p in sorted(class_dir.iterdir()):
-            if p.is_file() and p.suffix.lower() in ALLOWED_EXTS:
+            if (
+                p.is_file()
+                and p.suffix.lower() in ALLOWED_EXTS
+                and not _is_dataset_excluded(p.stem, excluded_ids)
+            ):
                 images.append(p)
     return images
 
@@ -4116,40 +4163,41 @@ def cleanup_classes():
         return []
     return [d.name for d in sorted(synth_dir.iterdir()) if d.is_dir()]
 
-    @app.get("/api/cleanup/images")
-    def cleanup_images(
-        page: int = 1, page_size: int = 500, class_filter: Optional[str] = None
-    ):
-        page = max(1, page)
-        page_size = max(1, min(500, page_size))
 
-        all_images = _collect_synth_images(class_filter)
-        total = len(all_images)
-        total_pages = max(1, math.ceil(total / page_size)) if total else 1
-        page = min(page, total_pages)
+@app.get("/api/cleanup/images")
+def cleanup_images(
+    page: int = 1, page_size: int = 500, class_filter: Optional[str] = None
+):
+    page = max(1, page)
+    page_size = max(1, min(500, page_size))
 
-        start = (page - 1) * page_size
-        end = start + page_size
-        batch = all_images[start:end]
+    all_images = _collect_synth_images(class_filter)
+    total = len(all_images)
+    total_pages = max(1, math.ceil(total / page_size)) if total else 1
+    page = min(page, total_pages)
 
-        items = []
-        for p in batch:
-            rel = _relative_posix(p, PROJECT_ROOT)
-            items.append(
-                {
-                    "id": rel,
-                    "url": f"/files/{quote(rel)}",
-                    "class_name": p.parent.name,
-                    "name": p.name,
-                }
-            )
+    start = (page - 1) * page_size
+    end = start + page_size
+    batch = all_images[start:end]
 
-        return {
-            "items": items,
-            "page": page,
-            "total_pages": total_pages,
-            "total_items": total,
-        }
+    items = []
+    for p in batch:
+        rel = _relative_posix(p, PROJECT_ROOT)
+        items.append(
+            {
+                "id": rel,
+                "url": f"/files/{quote(rel)}",
+                "class_name": p.parent.name,
+                "name": p.name,
+            }
+        )
+
+    return {
+        "items": items,
+        "page": page,
+        "total_pages": total_pages,
+        "total_items": total,
+    }
 
 
 @app.get("/api/synth/custom-presets")
@@ -4397,6 +4445,7 @@ def get_review_bucket_items(bucket: str = "", status: str = "todo", limit: int =
     """Get synthetic images filtered by review_bucket and review_status."""
     limit = max(1, min(2000, limit))
     manifest = load_manifest()
+    excluded_ids = load_excluded_ids()
     items = []
     seen_ids = set()
 
@@ -4411,6 +4460,8 @@ def get_review_bucket_items(bucket: str = "", status: str = "todo", limit: int =
         row_status = (row.get("review_status") or "").strip()
 
         if not is_synthetic:
+            continue
+        if _is_dataset_excluded(image_id, excluded_ids):
             continue
         if bucket and row_bucket != bucket:
             continue
@@ -4469,7 +4520,11 @@ def update_review_bucket_status(req: UpdateReviewStatusRequest):
     for row in manifest:
         img_id = (row.get("image_id") or "").strip()
         is_synthetic = (row.get("is_synthetic") or "0").strip() == "1"
-        if img_id in image_ids and is_synthetic:
+        if (
+            img_id in image_ids
+            and is_synthetic
+            and not _is_dataset_excluded(img_id, load_excluded_ids())
+        ):
             row["review_status"] = new_status
             updated += 1
 

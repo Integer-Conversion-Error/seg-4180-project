@@ -17,6 +17,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from utils.metadata import append_training_run_record, save_run_metadata
+from utils.dataset_exclusion import load_dataset_excluded_ids
 
 
 logging.basicConfig(
@@ -104,6 +105,44 @@ def _find_rejected_present_in_split_dirs(
             if image_id in rejected_ids:
                 leaked_ids.add(image_id)
 
+    return sorted(leaked_ids)
+
+
+def _find_dataset_excluded_assigned_to_splits(manifest_path: Path) -> list[str]:
+    if not manifest_path.exists():
+        return []
+    excluded_ids = load_dataset_excluded_ids(manifest_path)
+    leaked_ids: list[str] = []
+    with open(manifest_path, "r", newline="", encoding="utf-8") as f:
+        for row in csv.DictReader(f):
+            if row.get("status") != "ok":
+                continue
+            if row.get("split") not in {"train", "val", "test"}:
+                continue
+            image_id = (row.get("image_id") or "").strip()
+            if image_id and image_id in excluded_ids:
+                leaked_ids.append(image_id)
+    return leaked_ids
+
+
+def _find_dataset_excluded_present_in_split_dirs(
+    manifest_path: Path, data_yaml: Path
+) -> list[str]:
+    if not manifest_path.exists() or not data_yaml.exists():
+        return []
+    excluded_ids = load_dataset_excluded_ids(manifest_path)
+    if not excluded_ids:
+        return []
+    leaked_ids: set[str] = set()
+    image_exts = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"}
+    for split_dir in _parse_dataset_split_dirs(data_yaml):
+        if not split_dir.exists():
+            continue
+        for image_path in split_dir.iterdir():
+            if not image_path.is_file() or image_path.suffix.lower() not in image_exts:
+                continue
+            if image_path.stem in excluded_ids:
+                leaked_ids.add(image_path.stem)
     return sorted(leaked_ids)
 
 
@@ -304,17 +343,37 @@ def main() -> int:
         return 1
 
     manifest_path = Path(args.manifest)
-    if not args.include_rejected:
-        if not manifest_path.exists():
-            logger.error(
-                "Training blocked: manifest not found for rejected-image safety check: %s",
-                manifest_path,
-            )
-            logger.error(
-                "Provide --manifest or override explicitly: --include-rejected"
-            )
-            return 1
+    if not manifest_path.exists():
+        logger.error(
+            "Training blocked: manifest not found for safety checks: %s",
+            manifest_path,
+        )
+        return 1
 
+    excluded_ids = load_dataset_excluded_ids(manifest_path)
+    excluded_assigned = _find_dataset_excluded_assigned_to_splits(manifest_path)
+    if excluded_assigned:
+        sample = ", ".join(excluded_assigned[:5])
+        logger.error(
+            "Training blocked: %d dataset-excluded images are assigned to train/val/test splits.",
+            len(excluded_assigned),
+        )
+        logger.error("Sample image_ids: %s", sample)
+        return 1
+
+    excluded_leaked = _find_dataset_excluded_present_in_split_dirs(
+        manifest_path, data_yaml
+    )
+    if excluded_leaked:
+        sample = ", ".join(excluded_leaked[:5])
+        logger.error(
+            "Training blocked: %d dataset-excluded images are present in dataset split directories.",
+            len(excluded_leaked),
+        )
+        logger.error("Sample image_ids: %s", sample)
+        return 1
+
+    if not args.include_rejected:
         rejected_ids = _find_rejected_assigned_to_splits(manifest_path)
         if rejected_ids:
             sample = ", ".join(rejected_ids[:5])
