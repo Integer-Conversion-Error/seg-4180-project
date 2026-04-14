@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Synthesize vehicle edits using the Grok image editing API.
+Synthesize vehicle edits using Gemini by default, with optional Grok support.
 Creates random_vehicle and enforcement_vehicle variants of empty frames.
 Uses reference images for enforcement classes.
 """
@@ -32,10 +32,15 @@ from tqdm import tqdm
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from utils.preprocessing import resize_cover_center_crop
+from utils.dataset_exclusion import load_dataset_excluded_ids
 from utils.grok_image_api import (
     GrokImageAPIError,
     encode_image_to_base64,
     generate_image,
+)
+from utils.gemini_image_api import (
+    GeminiImageAPIError,
+    generate_image as generate_gemini_image,
 )
 
 
@@ -384,7 +389,7 @@ def load_reference_images(dataset_dir: Path) -> dict[str, list[Path]]:
     return complete_groups
 
 
-def synthesize_image(
+def synthesize_image_grok(
     grok_api_key: str,
     image_path: Path,
     prompt: str,
@@ -446,6 +451,67 @@ def synthesize_image(
         logger.error(f"Grok synthesis failed: {e}")
         return None
 
+    except Exception as e:
+        logger.error(f"Synthesis failed: {e}")
+        return None
+
+
+def synthesize_image_gemini(
+    gemini_api_key: str,
+    image_path: Path,
+    prompt: str,
+    model: str = "gemini-3.1-flash-image-preview",
+    reference_path: Optional[Union[Path, List[Path]]] = None,
+    rate_limiter: Optional["RequestRateLimiter"] = None,
+) -> Optional[bytes]:
+    try:
+        with image_path.open("rb") as handle:
+            image_inputs: List[bytes] = [handle.read()]
+
+        if reference_path:
+            if isinstance(reference_path, list):
+                for ref in reference_path:
+                    if ref.exists():
+                        with ref.open("rb") as handle:
+                            image_inputs.append(handle.read())
+            elif reference_path.exists():
+                with reference_path.open("rb") as handle:
+                    image_inputs.append(handle.read())
+
+        with Image.open(image_path) as source_image:
+            expected_size = source_image.size
+
+        if rate_limiter is not None:
+            rate_limiter.acquire()
+
+        data = generate_gemini_image(
+            api_key=gemini_api_key,
+            model=model,
+            prompt=prompt,
+            input_images=image_inputs,
+        )
+        with Image.open(BytesIO(data)) as generated_image:
+            generated_size = generated_image.size
+        if generated_size != expected_size:
+            try:
+                data = resize_cover_center_crop(data, expected_size)
+                logger.warning(
+                    "Adjusted generated image size from %s to %s via cover-resize + center-crop",
+                    generated_size,
+                    expected_size,
+                )
+            except Exception as exc:
+                logger.error(
+                    "Failed to adjust generated image size: expected=%s got=%s error=%s",
+                    expected_size,
+                    generated_size,
+                    exc,
+                )
+                return None
+        return data
+    except GeminiImageAPIError as e:
+        logger.error(f"Gemini synthesis failed: {e}")
+        return None
     except Exception as e:
         logger.error(f"Synthesis failed: {e}")
         return None
@@ -588,7 +654,8 @@ manifest_lock = threading.Lock()
 
 def process_image(
     client: genai.Client,
-    grok_api_key: str,
+    image_provider: str,
+    image_api_key: str,
     img_id: str,
     parent_row: dict,
     out_dir: Path,
@@ -659,8 +726,13 @@ def process_image(
             vehicle_body_type,
             distance,
         )
-        img_data = synthesize_image(
-            grok_api_key,
+        synthesize_fn = (
+            synthesize_image_gemini
+            if image_provider == "gemini"
+            else synthesize_image_grok
+        )
+        img_data = synthesize_fn(
+            image_api_key,
             parent_path,
             random_vehicle_prompt,
             model,
@@ -739,8 +811,13 @@ def process_image(
             )
 
             # Call synthesize_image with the list of references for this model
-            img_data = synthesize_image(
-                grok_api_key,
+            synthesize_fn = (
+                synthesize_image_gemini
+                if image_provider == "gemini"
+                else synthesize_image_grok
+            )
+            img_data = synthesize_fn(
+                image_api_key,
                 parent_path,
                 formatted_prompt,
                 model,
@@ -818,6 +895,12 @@ def main():
         help="Gemini API key for planner model",
     )
     parser.add_argument(
+        "--image-provider",
+        choices=["gemini", "grok"],
+        default="gemini",
+        help="Image generation provider",
+    )
+    parser.add_argument(
         "--grok-api-key",
         "--flux-api-key",
         dest="grok_api_key",
@@ -826,8 +909,8 @@ def main():
     )
     parser.add_argument(
         "--model",
-        default="grok-imagine-image",
-        help="Grok image model alias",
+        default=None,
+        help="Image model alias (defaults based on --image-provider)",
     )
     parser.add_argument(
         "--planner-model",
@@ -915,12 +998,30 @@ def main():
         logger.error("No planner API key. Set GEMINI_API_KEY or use --api-key")
         return
 
-    grok_api_key = (
-        args.grok_api_key or os.getenv("XAI_API_KEY") or os.getenv("GROK_API_KEY")
-    )
-    if not grok_api_key:
-        logger.error("No Grok API key. Set XAI_API_KEY/GROK_API_KEY or --grok-api-key")
-        return
+    image_provider = args.image_provider
+    if image_provider == "grok":
+        image_api_key = (
+            args.grok_api_key or os.getenv("XAI_API_KEY") or os.getenv("GROK_API_KEY")
+        )
+        if not image_api_key:
+            logger.error(
+                "No Grok API key. Set XAI_API_KEY/GROK_API_KEY or --grok-api-key"
+            )
+            return
+    else:
+        image_api_key = os.getenv("GEMINI_API_KEY")
+        if not image_api_key:
+            logger.error("No Gemini API key. Set GEMINI_API_KEY or use --api-key")
+            return
+
+    if args.model:
+        image_model = args.model
+    else:
+        image_model = (
+            "gemini-3.1-flash-image-preview"
+            if image_provider == "gemini"
+            else "grok-imagine-image"
+        )
 
     client = genai.Client(api_key=planner_api_key)
 
@@ -970,18 +1071,13 @@ def main():
     )
 
     # Filter out excluded images
-    excluded_ids = set()
-    if excluded_list_path.exists():
-        with open(excluded_list_path, "r") as f:
-            excluded_ids = {line.strip() for line in f if line.strip()}
-        if excluded_ids:
-            original_count = len(empty_candidates)
-            empty_candidates = [
-                cid for cid in empty_candidates if cid not in excluded_ids
-            ]
-            logger.info(
-                f"Filtered {original_count - len(empty_candidates)} excluded images from synthesis"
-            )
+    excluded_ids = load_dataset_excluded_ids(manifest_path)
+    if excluded_ids:
+        original_count = len(empty_candidates)
+        empty_candidates = [cid for cid in empty_candidates if cid not in excluded_ids]
+        logger.info(
+            f"Filtered {original_count - len(empty_candidates)} dataset-excluded images from synthesis"
+        )
 
     # Build set of existing synthetic IDs for resume
     existing_ids = set()
@@ -1075,14 +1171,15 @@ def main():
                 future = executor.submit(
                     process_image,
                     client,
-                    grok_api_key,
+                    image_provider,
+                    image_api_key,
                     img_id,
                     parent_row,
                     out_dir,
                     existing_ids,
                     enforcement_candidates,
                     reference_images,
-                    args.model,
+                    image_model,
                     variant_seed,
                     img_id in hard_negative_candidates,
                     variant_idx,
