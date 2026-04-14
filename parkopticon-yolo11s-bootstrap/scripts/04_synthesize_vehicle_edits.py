@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
-Synthesize vehicle edits using Gemini by default, with optional Grok support.
+Synthesize vehicle edits using Gemini batch mode by default, with optional Grok support.
 Creates random_vehicle and enforcement_vehicle variants of empty frames.
 Uses reference images for enforcement classes.
 """
 
 import argparse
 import csv
+import base64
 import json
 import logging
 import os
@@ -517,6 +518,143 @@ def synthesize_image_gemini(
         return None
 
 
+def _guess_image_mime_type(image_path: Path) -> str:
+    suffix = image_path.suffix.lower()
+    if suffix in {".png"}:
+        return "image/png"
+    if suffix in {".webp"}:
+        return "image/webp"
+    return "image/jpeg"
+
+
+def _decode_inline_data_value(raw_data: object) -> bytes:
+    if isinstance(raw_data, bytes):
+        return raw_data
+    if isinstance(raw_data, str):
+        return base64.b64decode(raw_data)
+    raise ValueError("Unsupported inline data type")
+
+
+def decode_gemini_batch_result_line(line: str) -> Optional[bytes]:
+    payload = json.loads(line)
+    response = payload.get("response") or {}
+    candidates = response.get("candidates") or []
+    for candidate in candidates:
+        content = candidate.get("content") or {}
+        for part in content.get("parts") or []:
+            inline_data = part.get("inlineData") or part.get("inline_data") or {}
+            data = inline_data.get("data")
+            if data:
+                return _decode_inline_data_value(data)
+    return None
+
+
+def build_gemini_batch_request(
+    *,
+    request_id: str,
+    source_file_uri: str,
+    source_mime_type: str,
+    prompt: str,
+    reference_file_uris: Optional[List[str]] = None,
+    reference_mime_types: Optional[List[str]] = None,
+) -> dict:
+    parts = [
+        {
+            "file_data": {
+                "file_uri": source_file_uri,
+                "mime_type": source_mime_type,
+            }
+        }
+    ]
+    reference_mime_types = reference_mime_types or []
+    for idx, ref_uri in enumerate(reference_file_uris or []):
+        ref_mime_type = (
+            reference_mime_types[idx]
+            if idx < len(reference_mime_types)
+            else source_mime_type
+        )
+        parts.append(
+            {
+                "file_data": {
+                    "file_uri": ref_uri,
+                    "mime_type": ref_mime_type,
+                }
+            }
+        )
+    parts.append({"text": prompt})
+    return {
+        "key": request_id,
+        "request": {
+            "contents": [{"role": "user", "parts": parts}],
+            "generation_config": {"responseModalities": ["TEXT", "IMAGE"]},
+        },
+    }
+
+
+def _upload_gemini_batch_file(client: genai.Client, image_path: Path):
+    return client.files.upload(
+        file=str(image_path),
+        config=types.UploadFileConfig(
+            display_name=image_path.name,
+            mime_type=_guess_image_mime_type(image_path),
+        ),
+    )
+
+
+def _poll_gemini_batch_job(client: genai.Client, batch_job, poll_interval: float = 5.0):
+    terminal_states = {"JOB_STATE_SUCCEEDED", "JOB_STATE_FAILED", "SUCCEEDED", "FAILED"}
+    while True:
+        state_obj = getattr(batch_job, "state", getattr(batch_job, "status", None))
+        state = getattr(state_obj, "name", str(state_obj))
+        if state in terminal_states:
+            return batch_job
+        time.sleep(poll_interval)
+        getter = getattr(client.batches, "get", None) or getattr(
+            client.batches, "retrieve", None
+        )
+        if getter is None:
+            return batch_job
+        batch_job = getter(
+            name=getattr(batch_job, "name", getattr(batch_job, "id", None))
+        )
+
+
+def _download_gemini_batch_results(client: genai.Client, batch_job) -> str:
+    dest = getattr(batch_job, "dest", None)
+    file_name = getattr(dest, "file_name", None) or getattr(
+        dest, "responses_file", None
+    )
+    if not file_name:
+        raise RuntimeError("Batch job did not provide a destination file")
+    downloader = getattr(client.files, "download", None)
+    if downloader is None:
+        raise RuntimeError("Gemini client does not support file downloads")
+    try:
+        downloaded = downloader(file=file_name)
+    except TypeError:
+        downloaded = downloader(file_name=file_name)
+    if isinstance(downloaded, bytes):
+        return downloaded.decode("utf-8")
+    if isinstance(downloaded, str):
+        return downloaded
+    text = getattr(downloaded, "text", None)
+    if isinstance(text, str):
+        return text
+    if hasattr(downloaded, "decode"):
+        return downloaded.decode("utf-8")
+    return str(downloaded)
+
+
+def _uploaded_file_uri(uploaded_file) -> str:
+    return str(
+        getattr(uploaded_file, "uri", None) or getattr(uploaded_file, "name", "")
+    )
+
+
+def _uploaded_file_mime_type(uploaded_file, fallback: str) -> str:
+    return str(getattr(uploaded_file, "mime_type", None) or fallback)
+
+
 PLACEMENT_PLAN_SCHEMA = {
     "type": "object",
     "properties": {
@@ -862,6 +1000,300 @@ def process_image(
     return (count, new_rows)
 
 
+def build_synthesis_tasks(
+    *,
+    client: genai.Client,
+    image_provider: str,
+    image_api_key: str,
+    manifest_lookup: dict,
+    empty_candidates: list[str],
+    enforcement_candidates: set,
+    reference_images: dict,
+    seed: int,
+    hard_negative_candidates: set,
+    planner_model: str,
+    planner_retries: int,
+    planner_min_confidence: float,
+    run_dir: Path,
+    max_random_variants_per_image: int,
+    max_enforcement_variants_per_image: int,
+) -> list[dict]:
+    tasks: list[dict] = []
+    for img_id in empty_candidates:
+        parent_row = manifest_lookup.get(img_id)
+        if not parent_row:
+            continue
+        random_variants = max(1, max_random_variants_per_image)
+        enforcement_variants = max(1, max_enforcement_variants_per_image)
+        total_variants = max(random_variants, enforcement_variants)
+        for variant_idx in range(total_variants):
+            variant_seed = seed + variant_idx * 100_003
+            parent_raw = parent_row.get("file_path", "")
+            parent_path = Path(parent_raw)
+            if not parent_path.is_absolute():
+                parent_path = run_dir / parent_path
+            if not parent_path.exists():
+                continue
+            plan = plan_vehicle_placement(
+                client,
+                planner_model,
+                parent_path,
+                max_retries=max(1, planner_retries),
+            )
+            if (
+                not plan["can_insert"]
+                or plan["confidence_high"] < planner_min_confidence
+            ):
+                continue
+            distance = plan.get("distance_preference") or random.choice(
+                DISTANCE_OPTIONS
+            )
+            spatial_instruction = (
+                "Crucially, place this vehicle in close proximity to the existing vehicle(s) in the scene, as if they are driving or parked near each other. "
+                if img_id in hard_negative_candidates
+                else ""
+            )
+            task_base = {
+                "img_id": img_id,
+                "parent_row": parent_row,
+                "parent_path": parent_path,
+                "distance": distance,
+                "guidance": plan.get("guidance", ""),
+                "variant_index": variant_idx,
+                "variant_seed": variant_seed,
+                "spatial_instruction": spatial_instruction,
+            }
+            task_base["random_vehicle"] = {
+                "enabled": True,
+                "synth_id": generate_image_id(
+                    img_id,
+                    "random_vehicle"
+                    if variant_idx == 0
+                    else f"random_vehicle_v{variant_idx}",
+                ),
+            }
+            if img_id in enforcement_candidates:
+                task_base["enforcement"] = []
+                for edit_type, reference_key in [
+                    ("enforcement_vehicle", "enforcement"),
+                    ("police_old", "police_old"),
+                    ("police_new", "police_new"),
+                ]:
+                    ref_groups = reference_images.get(reference_key, {})
+                    if not ref_groups:
+                        continue
+                    model_id = random.choice(list(ref_groups.keys()))
+                    task_base["enforcement"].append(
+                        {
+                            "edit_type": edit_type,
+                            "reference_key": reference_key,
+                            "reference_model_id": model_id,
+                            "reference_paths": ref_groups[model_id],
+                            "synth_id": generate_image_id(
+                                img_id,
+                                edit_type
+                                if variant_idx == 0
+                                else f"{edit_type}_v{variant_idx}",
+                            ),
+                        }
+                    )
+            tasks.append(task_base)
+    return tasks
+
+
+def run_gemini_batch_generation(
+    *,
+    client: genai.Client,
+    model: str,
+    tasks: list[dict],
+    reference_images: dict,
+    out_dir: Path,
+    manifest: list,
+    manifest_path: Path,
+    existing_ids: Optional[set] = None,
+) -> int:
+    existing_ids = existing_ids or set()
+    unique_paths: dict[Path, object] = {}
+    for task in tasks:
+        unique_paths[task["parent_path"]] = None
+        for group in task.get("enforcement") or []:
+            for ref_path in group["reference_paths"]:
+                unique_paths[ref_path] = None
+    uploaded = {path: _upload_gemini_batch_file(client, path) for path in unique_paths}
+    requests = []
+    output_plan = []
+    for task in tasks:
+        source_upload = uploaded[task["parent_path"]]
+        source_uri = _uploaded_file_uri(source_upload)
+        source_mime_type = _uploaded_file_mime_type(
+            source_upload, _guess_image_mime_type(task["parent_path"])
+        )
+        if task.get("random_vehicle"):
+            prompt, _, _ = build_random_vehicle_prompt(
+                task["img_id"], task["variant_seed"], distance=task["distance"]
+            )
+            if task.get("guidance"):
+                prompt = f"{prompt} Additional guidance: {task['guidance']}"
+            if task.get("spatial_instruction"):
+                prompt = f"{prompt} {task['spatial_instruction']}"
+            synth_id = task["random_vehicle"]["synth_id"]
+            if synth_id not in existing_ids:
+                requests.append(
+                    build_gemini_batch_request(
+                        request_id=synth_id,
+                        source_file_uri=source_uri,
+                        source_mime_type=source_mime_type,
+                        prompt=prompt,
+                    )
+                )
+                output_plan.append(
+                    (
+                        synth_id,
+                        out_dir / "random_vehicle" / f"{synth_id}.jpg",
+                        task["parent_row"],
+                        task["img_id"],
+                        "random_vehicle",
+                        "vehicle",
+                        task["variant_index"],
+                    )
+                )
+        for enf in task.get("enforcement") or []:
+            prompt_template = {
+                "enforcement_vehicle": ENFORCEMENT_PROMPT_WITH_REF,
+                "police_old": POLICE_OLD_PROMPT_WITH_REF,
+                "police_new": POLICE_NEW_PROMPT_WITH_REF,
+            }[enf["edit_type"]]
+            prompt = prompt_template.format(
+                distance=task["distance"],
+                spatial_instruction=task["spatial_instruction"],
+            )
+            if task.get("guidance"):
+                prompt = f"{prompt} Additional guidance: {task['guidance']}"
+            synth_id = enf["synth_id"]
+            if synth_id in existing_ids:
+                continue
+            reference_uploads = [uploaded[p] for p in enf["reference_paths"]]
+            reference_uris = [
+                _uploaded_file_uri(upload) for upload in reference_uploads
+            ]
+            reference_mime_types = [
+                _uploaded_file_mime_type(upload, _guess_image_mime_type(path))
+                for upload, path in zip(reference_uploads, enf["reference_paths"])
+            ]
+            request = build_gemini_batch_request(
+                request_id=synth_id,
+                source_file_uri=source_uri,
+                source_mime_type=source_mime_type,
+                prompt=prompt,
+                reference_file_uris=reference_uris,
+                reference_mime_types=reference_mime_types,
+            )
+            requests.append(request)
+            output_plan.append(
+                (
+                    synth_id,
+                    out_dir / enf["edit_type"] / f"{synth_id}.jpg",
+                    task["parent_row"],
+                    task["img_id"],
+                    enf["edit_type"],
+                    enf["edit_type"],
+                    task["variant_index"],
+                )
+            )
+
+    if not requests:
+        logger.info("No Gemini batch requests to submit")
+        return 0
+
+    batch_input = out_dir / "gemini_batch_input.jsonl"
+    batch_input.parent.mkdir(parents=True, exist_ok=True)
+    with batch_input.open("w", encoding="utf-8") as f:
+        for req in requests:
+            f.write(json.dumps(req) + "\n")
+    uploaded_jsonl = client.files.upload(
+        file=str(batch_input),
+        config=types.UploadFileConfig(display_name=batch_input.name, mime_type="jsonl"),
+    )
+    batch_job = client.batches.create(
+        model=model,
+        src=uploaded_jsonl.name,
+        config={"display_name": "synth_vehicle_edits"},
+    )
+    logger.info("Created Gemini batch job: %s", getattr(batch_job, "name", batch_job))
+    batch_job = _poll_gemini_batch_job(client, batch_job)
+    batch_state_obj = getattr(batch_job, "state", getattr(batch_job, "status", None))
+    batch_state = getattr(batch_state_obj, "name", str(batch_state_obj))
+    if batch_state not in {"JOB_STATE_SUCCEEDED", "SUCCEEDED"}:
+        raise RuntimeError(
+            f"Gemini batch job failed with state {batch_state}: {getattr(batch_job, 'error', '')}"
+        )
+    results_text = _download_gemini_batch_results(client, batch_job)
+    results_by_id = {}
+    for line in results_text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        decoded = decode_gemini_batch_result_line(line)
+        payload = json.loads(line)
+        req_id = (
+            payload.get("key")
+            or payload.get("request_id")
+            or payload.get("id")
+            or (payload.get("metadata") or {}).get("key")
+        )
+        if not decoded and payload.get("error"):
+            logger.warning(
+                "Gemini batch request failed for %s: %s", req_id, payload["error"]
+            )
+        if decoded and req_id:
+            results_by_id[req_id] = decoded
+
+    count = 0
+    for (
+        synth_id,
+        out_path,
+        parent_row,
+        parent_image_id,
+        edit_type,
+        expected_class,
+        variant_index,
+    ) in output_plan:
+        img_data = results_by_id.get(synth_id)
+        if not img_data:
+            continue
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_bytes(img_data)
+        manifest.append(
+            {
+                "image_id": synth_id,
+                "file_path": str(out_path),
+                "split": "unset",
+                "parent_image_id": parent_image_id,
+                "is_synthetic": "1",
+                "edit_type": edit_type,
+                "expected_inserted_class": expected_class,
+                "street": parent_row.get("street", ""),
+                "input_location": parent_row.get("input_location", ""),
+                "heading": parent_row.get("heading", ""),
+                "pitch": parent_row.get("pitch", ""),
+                "fov": parent_row.get("fov", ""),
+                "pano_id": parent_row.get("pano_id", ""),
+                "pano_lat": parent_row.get("pano_lat", ""),
+                "pano_lng": parent_row.get("pano_lng", ""),
+                "status": "ok",
+                "num_boxes_autogen": "0",
+                "needs_review": "1",
+                "review_status": "todo",
+                "review_bucket": "EV-SNV" if edit_type == "random_vehicle" else "EV-SE",
+                "variant_index": str(variant_index),
+                "created_at": datetime.now().isoformat(),
+            }
+        )
+        count += 1
+    save_manifest(manifest, manifest_path)
+    return count
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Synthesize vehicle edits with reference images"
@@ -899,6 +1331,12 @@ def main():
         choices=["gemini", "grok"],
         default="gemini",
         help="Image generation provider",
+    )
+    parser.add_argument(
+        "--generation-mode",
+        choices=["batch", "realtime"],
+        default="batch",
+        help="Gemini generation mode (batch is the default)",
     )
     parser.add_argument(
         "--grok-api-key",
@@ -1150,62 +1588,88 @@ def main():
             f"Selected {len(hard_negative_candidates)} hard negative candidates from {len(potential_hard_negs)} images with existing vehicles"
         )
 
-    rate_limiter = RequestRateLimiter(max_requests=280, period_seconds=60.0)
-
-    # Process images in parallel
     total_count = 0
+    if image_provider == "gemini" and args.generation_mode == "batch":
+        tasks = build_synthesis_tasks(
+            client=client,
+            image_provider=image_provider,
+            image_api_key=image_api_key,
+            manifest_lookup=manifest_lookup,
+            empty_candidates=empty_candidates,
+            enforcement_candidates=enforcement_candidates,
+            reference_images=reference_images,
+            seed=args.seed,
+            hard_negative_candidates=hard_negative_candidates,
+            planner_model=args.planner_model,
+            planner_retries=args.planner_retries,
+            planner_min_confidence=args.planner_min_confidence,
+            run_dir=run_dir,
+            max_random_variants_per_image=args.max_random_variants_per_image,
+            max_enforcement_variants_per_image=args.max_enforcement_variants_per_image,
+        )
+        total_count = run_gemini_batch_generation(
+            client=client,
+            model=image_model,
+            tasks=tasks,
+            reference_images=reference_images,
+            out_dir=out_dir,
+            manifest=manifest,
+            manifest_path=manifest_path,
+            existing_ids=existing_ids,
+        )
+    else:
+        if image_provider == "grok" and args.generation_mode == "batch":
+            logger.warning(
+                "Batch mode is only supported for Gemini; falling back to realtime for Grok"
+            )
+        rate_limiter = RequestRateLimiter(max_requests=280, period_seconds=60.0)
+        with ThreadPoolExecutor(max_workers=args.workers) as executor:
+            futures = {}
+            for img_id in empty_candidates:
+                parent_row = manifest_lookup.get(img_id)
+                if not parent_row:
+                    continue
 
-    with ThreadPoolExecutor(max_workers=args.workers) as executor:
-        futures = {}
-        for img_id in empty_candidates:
-            parent_row = manifest_lookup.get(img_id)
-            if not parent_row:
-                continue
+                random_variants = max(1, args.max_random_variants_per_image)
+                enforcement_variants = max(1, args.max_enforcement_variants_per_image)
+                total_variants = max(random_variants, enforcement_variants)
 
-            random_variants = max(1, args.max_random_variants_per_image)
-            enforcement_variants = max(1, args.max_enforcement_variants_per_image)
-            total_variants = max(random_variants, enforcement_variants)
+                for variant_idx in range(total_variants):
+                    variant_seed = args.seed + variant_idx * 100_003
+                    future = executor.submit(
+                        process_image,
+                        client,
+                        image_provider,
+                        image_api_key,
+                        img_id,
+                        parent_row,
+                        out_dir,
+                        existing_ids,
+                        enforcement_candidates,
+                        reference_images,
+                        image_model,
+                        variant_seed,
+                        img_id in hard_negative_candidates,
+                        variant_idx,
+                        args.planner_model,
+                        args.planner_retries,
+                        args.planner_min_confidence,
+                        run_dir,
+                        rate_limiter,
+                    )
+                    futures[future] = img_id
 
-            for variant_idx in range(total_variants):
-                variant_seed = args.seed + variant_idx * 100_003
-                future = executor.submit(
-                    process_image,
-                    client,
-                    image_provider,
-                    image_api_key,
-                    img_id,
-                    parent_row,
-                    out_dir,
-                    existing_ids,
-                    enforcement_candidates,
-                    reference_images,
-                    image_model,
-                    variant_seed,
-                    img_id in hard_negative_candidates,
-                    variant_idx,
-                    args.planner_model,
-                    args.planner_retries,
-                    args.planner_min_confidence,
-                    run_dir,
-                    rate_limiter,
-                )
-                futures[future] = img_id
-
-        # Collect results with progress bar
-        for future in tqdm(
-            as_completed(futures), total=len(futures), desc="Synthesizing"
-        ):
-            count, new_rows = future.result()
-            total_count += count
-
-            # Update manifest (thread-safe)
-            if new_rows:
-                with manifest_lock:
-                    manifest.extend(new_rows)
-                    save_manifest(manifest, manifest_path)
-                    # Add new IDs to existing_ids to avoid duplicates
-                    for row in new_rows:
-                        existing_ids.add(row["image_id"])
+            for future in tqdm(
+                as_completed(futures), total=len(futures), desc="Synthesizing"
+            ):
+                count, new_rows = future.result()
+                total_count += count
+                if new_rows:
+                    with manifest_lock:
+                        manifest.extend(new_rows)
+                        save_manifest(manifest, manifest_path)
+                        for row in new_rows:
+                            existing_ids.add(row["image_id"])
 
     logger.info(f"Created {total_count} synthetic images")
     logger.info(f"Manifest updated: {manifest_path}")
